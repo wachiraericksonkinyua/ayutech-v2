@@ -1,22 +1,16 @@
-# backend/app/api/v1/endpoints/payments.py
-
 import inspect
+import os
 from fastapi import APIRouter, HTTPException, Request
-from app.db.supabase_client import supabase
+from app.core.config import supabase
 from app.services import daraja_service
-from app.services.whatsapp import send_order_whatsapp_alert
+from app.services.whatsapp_service import send_order_whatsapp_alert
 
 router = APIRouter()
 
+
 async def _invoke_daraja_stk(phone_number: str, amount: int, account_reference: str, transaction_desc: str):
-    """Finds and executes any sync/async STK push function or class method in daraja_service."""
+    """Dynamically invoke STK push across different method names in DarajaService."""
     candidates = []
-
-    for name in ["initiate_stk_push", "stk_push", "push_stk_push", "trigger_stk_push", "send_stk_push"]:
-        fn = getattr(daraja_service, name, None)
-        if callable(fn):
-            candidates.append(fn)
-
     for obj_name in ["daraja_service", "daraja_client", "daraja", "DarajaService"]:
         obj = getattr(daraja_service, obj_name, None)
         if obj is not None:
@@ -69,22 +63,27 @@ async def trigger_pos_stk_push(payload: dict):
         )
         checkout_req_id = stk_response.get("CheckoutRequestID") if isinstance(stk_response, dict) else getattr(stk_response, "CheckoutRequestID", "")
 
-        # Attach CheckoutRequestID to the order in Supabase so the webhook can match it!
+        # Attach CheckoutRequestID to the order in Supabase safely (avoiding UUID type mismatch errors)
         if checkout_req_id:
             update_data = {"checkout_request_id": checkout_req_id}
-            if order_id:
-                supabase.table("orders").update(update_data).eq("id", order_id).execute()
+            
+            if order_id and len(str(order_id)) > 30:
+                try:
+                    supabase.table("orders").update(update_data).eq("id", order_id).execute()
+                except Exception:
+                    pass
             elif order_ref and order_ref != "POS":
-                # Try matching by receipt_number/ref or order ID
-                supabase.table("orders").update(update_data).or_(f"id.eq.{order_ref},receipt_number.ilike.%{order_ref}%").execute()
-            else:
-                # Fallback: link to the most recent Pending PIN order for this phone
+                try:
+                    supabase.table("orders").update(update_data).ilike("receipt_number", f"%{order_ref}%").execute()
+                except Exception:
+                    pass
+            
+            try:
                 recent = supabase.table("orders").select("id").eq("customer_phone", phone).eq("status", "Pending PIN").order("created_at", desc=True).limit(1).execute()
-                recent_rows = getattr(recent, "data", None) or []
-                if recent_rows and isinstance(recent_rows, list) and isinstance(recent_rows[0], dict):
-                    recent_id = recent_rows[0].get("id")
-                    if recent_id is not None:
-                        supabase.table("orders").update(update_data).eq("id", recent_id).execute()
+                if recent.data:
+                    supabase.table("orders").update(update_data).eq("id", recent.data[0]["id"]).execute()
+            except Exception as link_err:
+                print(f"Fallback link error: {link_err}")
 
         return {
             "status": "success", 
@@ -94,6 +93,7 @@ async def trigger_pos_stk_push(payload: dict):
     except Exception as e:
         print(f"STK Push error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/callback")
 @router.post("/mpesa-callback")
@@ -109,7 +109,6 @@ async def mpesa_callback(request: Request):
         meta_items = stk_callback.get("CallbackMetadata", {}).get("Item", [])
         receipt = next((i.get("Value") for i in meta_items if i.get("Name") == "MpesaReceiptNumber"), "MPESA_PAID")
 
-        # 1. Update order matching checkout_request_id
         db_res = supabase.table("orders").update({
             "status": "Paid",
             "receipt_number": receipt
@@ -117,19 +116,36 @@ async def mpesa_callback(request: Request):
 
         data_rows = getattr(db_res, "data", []) or []
 
-        # 2. Fallback: if no row had this checkout_request_id, update the most recent Pending PIN order
         if not data_rows:
             pending_res = supabase.table("orders").select("id").eq("status", "Pending PIN").order("created_at", desc=True).limit(1).execute()
-            pending_data = getattr(pending_res, "data", None) or []
-            if pending_data:
-                first_row = pending_data[0]
-                if isinstance(first_row, dict) and "id" in first_row:
-                    target_id = first_row["id"]
-                    supabase.table("orders").update({
-                        "status": "Paid",
-                        "receipt_number": receipt,
-                        "checkout_request_id": checkout_request_id
-                    }).eq("id", target_id).execute()
-                    print(f"Linked receipt {receipt} to pending order {target_id}")
+            if pending_res.data:
+                target_id = pending_res.data[0]["id"]
+                upd_res = supabase.table("orders").update({
+                    "status": "Paid",
+                    "receipt_number": receipt,
+                    "checkout_request_id": checkout_request_id
+                }).eq("id", target_id).execute()
+                data_rows = getattr(upd_res, "data", []) or []
+                print(f"Linked receipt {receipt} to pending order {target_id}")
 
-        print(f"Order Paid! Receipt: {receipt}")
+        print(f"✅ Order Paid! Receipt: {receipt}")
+
+        if data_rows:
+            try:
+                await send_order_whatsapp_alert(data_rows[0], receipt)
+            except Exception as w_err:
+                print(f"WhatsApp alert error: {w_err}")
+
+    elif result_code == 1032:
+        supabase.table("orders").update({
+            "status": "Cancelled"
+        }).eq("checkout_request_id", checkout_request_id).execute()
+        print("⚠️ Order Cancelled by user.")
+
+    else:
+        supabase.table("orders").update({
+            "status": "Payment Failed"
+        }).eq("checkout_request_id", checkout_request_id).execute()
+        print(f"❌ Payment Failed with Code: {result_code}")
+
+    return {"ResultCode": 0, "ResultDesc": "Accepted"}
