@@ -41,7 +41,10 @@ def root():
         "status": "Online",
         "version": "2.0.0"
     }
-
+@app.get("/health", status_code=200)
+@app.head("/health", status_code=200)
+async def health_check():
+    return "ok"
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
