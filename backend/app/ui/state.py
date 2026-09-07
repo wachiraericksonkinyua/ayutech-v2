@@ -1,5 +1,10 @@
 import flet as ft
 
+
+# backend/app/ui/state.py
+
+API_BASE_URL = "https://ayutech-v2.onrender.com/api/v1"
+
 # Global App State
 cart = {}      # {id: {name, price, qty, image}}
 wishlist = {}  # {id: {name, price, image}}
