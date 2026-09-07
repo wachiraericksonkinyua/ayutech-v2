@@ -27,4 +27,4 @@ user_info = {
     "phone": "0712345678"
 }
 
-API_BASE_URL = "http://127.0.0.1:8000/api/v1"
+API_BASE_URL = "https://ayutech-v2.onrender.com/api/v1"
