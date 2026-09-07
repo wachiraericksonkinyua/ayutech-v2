@@ -1,0 +1,58 @@
+[
+  {
+    "name": "universal gmb gut 25 vigo 2wd",
+    "category": "Suspension",
+    "price": 1000,
+    "stock_quantity": 10,
+    "image_url": "https://raw.githubusercontent.com/wachiraericksonkinyua/ayutech/main/images/products/suspension/universaljoint%20gut25.png"
+  },
+  {
+    "name": "universaljoint 1KD 7L gut21",
+    "category": "Suspension",
+    "price": 1000,
+    "stock_quantity": 10,
+    "image_url": "https://raw.githubusercontent.com/wachiraericksonkinyua/ayutech/main/images/products/suspension/universaljoint%20gut21.png"
+  },
+  {
+    "name": "aircleaner7l",
+    "category": "Service Parts",
+    "price": 500,
+    "stock_quantity": 15,
+    "image_url": "https://raw.githubusercontent.com/wachiraericksonkinyua/ayutech/main/images/products/serviceparts/aircleaner7l.png"
+  },
+  {
+    "name": "texatf 1LITRE",
+    "category": "Lubricants",
+    "price": 400,
+    "stock_quantity": 20,
+    "image_url": "https://raw.githubusercontent.com/wachiraericksonkinyua/ayutech/main/images/products/lubricants/texatf.png"
+  },
+  {
+    "name": "CLUTCH plate 5L AISIN DT-068",
+    "category": "Gear Parts",
+    "price": 6000,
+    "stock_quantity": 5,
+    "image_url": "https://raw.githubusercontent.com/wachiraericksonkinyua/ayutech/main/images/products/gearparts/CLUTCH%205LAISIN.png"
+  },
+  {
+    "name": "top cover hiace 7l 1kd old model",
+    "category": "Engine Parts",
+    "price": 7000,
+    "stock_quantity": 3,
+    "image_url": "https://raw.githubusercontent.com/wachiraericksonkinyua/ayutech/main/images/products/engineparts/topcover%207l%20oldmodel.png"
+  },
+  {
+    "name": "BRAKE LINING 7L VBL",
+    "category": "Brake Parts",
+    "price": 2500,
+    "stock_quantity": 12,
+    "image_url": "https://raw.githubusercontent.com/wachiraericksonkinyua/ayutech/main/images/products/brakeparts/BRAKE%20LINING%206L%20VBL.png"
+  },
+  {
+    "name": "rear lamp7l newmodel",
+    "category": "Body Parts",
+    "price": 4500,
+    "stock_quantity": 8,
+    "image_url": "https://raw.githubusercontent.com/wachiraericksonkinyua/ayutech/main/images/products/bodyparts/rear%20lamp7l%20newmodel.png"
+  }
+]
