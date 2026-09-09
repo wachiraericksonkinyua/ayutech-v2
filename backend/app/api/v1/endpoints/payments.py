@@ -1,9 +1,22 @@
+import importlib
 import inspect
 import os
+from typing import Any, Awaitable, Callable, Optional, cast
 from fastapi import APIRouter, HTTPException, Request
-from app.core.config import supabase
+
 from app.services import daraja_service
-from app.services.whatsapp_service import send_order_whatsapp_alert
+from app.db.supabase_client import supabase
+
+send_order_whatsapp_alert: Optional[Callable[..., Awaitable[Any]]] = None
+try:
+    whatsapp_service_module = importlib.import_module("app.services.whatsapp_service")
+    send_order_whatsapp_alert = cast(Optional[Callable[..., Awaitable[Any]]], getattr(whatsapp_service_module, "send_order_whatsapp_alert", None))
+except Exception:
+    try:
+        whatsapp_service_module = importlib.import_module("app.services")
+        send_order_whatsapp_alert = cast(Optional[Callable[..., Awaitable[Any]]], getattr(whatsapp_service_module, "send_order_whatsapp_alert", None))
+    except Exception:
+        pass
 
 router = APIRouter()
 
@@ -63,7 +76,6 @@ async def trigger_pos_stk_push(payload: dict):
         )
         checkout_req_id = stk_response.get("CheckoutRequestID") if isinstance(stk_response, dict) else getattr(stk_response, "CheckoutRequestID", "")
 
-        # Attach CheckoutRequestID to the order in Supabase safely (avoiding UUID type mismatch errors)
         if checkout_req_id:
             update_data = {"checkout_request_id": checkout_req_id}
             
@@ -80,8 +92,11 @@ async def trigger_pos_stk_push(payload: dict):
             
             try:
                 recent = supabase.table("orders").select("id").eq("customer_phone", phone).eq("status", "Pending PIN").order("created_at", desc=True).limit(1).execute()
-                if recent.data:
-                    supabase.table("orders").update(update_data).eq("id", recent.data[0]["id"]).execute()
+                recent_rows = getattr(recent, "data", None) or []
+                if recent_rows:
+                    recent_id = recent_rows[0].get("id") if isinstance(recent_rows[0], dict) else None
+                    if recent_id is not None:
+                        supabase.table("orders").update(update_data).eq("id", recent_id).execute()
             except Exception as link_err:
                 print(f"Fallback link error: {link_err}")
 
@@ -118,19 +133,22 @@ async def mpesa_callback(request: Request):
 
         if not data_rows:
             pending_res = supabase.table("orders").select("id").eq("status", "Pending PIN").order("created_at", desc=True).limit(1).execute()
-            if pending_res.data:
-                target_id = pending_res.data[0]["id"]
-                upd_res = supabase.table("orders").update({
-                    "status": "Paid",
-                    "receipt_number": receipt,
-                    "checkout_request_id": checkout_request_id
-                }).eq("id", target_id).execute()
-                data_rows = getattr(upd_res, "data", []) or []
-                print(f"Linked receipt {receipt} to pending order {target_id}")
+            pending_rows = getattr(pending_res, "data", None) or []
+            if pending_rows:
+                first_pending = pending_rows[0]
+                target_id = first_pending.get("id") if isinstance(first_pending, dict) else None
+                if target_id is not None:
+                    upd_res = supabase.table("orders").update({
+                        "status": "Paid",
+                        "receipt_number": receipt,
+                        "checkout_request_id": checkout_request_id
+                    }).eq("id", target_id).execute()
+                    data_rows = getattr(upd_res, "data", []) or []
+                    print(f"Linked receipt {receipt} to pending order {target_id}")
 
         print(f"✅ Order Paid! Receipt: {receipt}")
 
-        if data_rows:
+        if data_rows and send_order_whatsapp_alert:
             try:
                 await send_order_whatsapp_alert(data_rows[0], receipt)
             except Exception as w_err:
