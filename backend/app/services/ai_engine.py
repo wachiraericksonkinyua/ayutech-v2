@@ -330,20 +330,21 @@ Relevant Inventory:
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": "llama-3.3-70b-versatile",
+                        "model": "llama-3.1-8b-instant",
                         "messages": groq_messages,
                         "max_tokens": 100,
                         "temperature": 0.2
                     }
                 )
-                
                 if resp.status_code == 200:
                     data = resp.json()
                     content = data["choices"][0]["message"]["content"]
                     if content and content.strip():
                         reply_text = content.strip()
+                else:
+                    print(f"❌ Groq API Error Status {resp.status_code}: {resp.text}")
         except Exception as err:
-            print(f"Groq request error: {err}")
+            print(f"❌ Groq Request Exception: {err}")
 
     # Return top matching products max for instant add-to-cart buttons
     return {
