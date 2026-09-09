@@ -2,6 +2,7 @@
 
 import flet as ft
 import httpx
+from typing import cast
 from app.ui.state import all_products, cart, wishlist, API_BASE_URL
 from app.ui.views.home_view import build_home_view
 from app.ui.views.browse_view import build_browse_view
@@ -12,6 +13,24 @@ from app.ui.views.product_detail_view import build_product_detail_view
 from app.ui.views.dashboard_view import build_dashboard_view
 
 API_BASE_URL = "https://ayutech-v2.onrender.com/api/v1"
+
+
+def build_loading_view():
+    return ft.View(
+        route="/loading",
+        controls=[
+            ft.Column(
+                [
+                    ft.ProgressRing(width=50, height=50, stroke_width=4, color="#DC2626"),
+                    ft.Text("Loading AyuTech Motors...", size=16, weight=ft.FontWeight.BOLD, color="#121212"),
+                ],
+                alignment=ft.MainAxisAlignment.CENTER,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            )
+        ],
+        vertical_alignment=ft.MainAxisAlignment.CENTER,
+        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+    )
 
 def main(page: ft.Page):
     page.title = "AyuTech Motors Limited"
@@ -37,6 +56,9 @@ def main(page: ft.Page):
     content_area = ft.Container(expand=True, bgcolor="#FFFFFF")
     conversation_history = []
 
+    # Show loading spinner immediately on startup
+    content_area.content = build_loading_view()
+
     def fetch_products():
         try:
             res = httpx.get(f"{API_BASE_URL}/admin/products", timeout=5)
@@ -45,6 +67,8 @@ def main(page: ft.Page):
                 all_products.extend(res.json())
         except Exception as err:
             print(f"Backend offline: {err}")
+        finally:
+            switch_tab(0)
 
     def update_cart(p, qty=1):
         p_id = str(p.get("id"))
@@ -126,7 +150,6 @@ def main(page: ft.Page):
                     ft.Text(text, size=12, weight=ft.FontWeight.W_500, color="#111827", selectable=True)
                 ]
 
-                # Render dynamic quick-add buttons if products match
                 if suggested_products:
                     for sp in suggested_products:
                         p_name = sp.get("name", "Auto Part")
@@ -162,8 +185,6 @@ def main(page: ft.Page):
                                             bgcolor="#DC2626",
                                             color="white",
                                             padding=ft.padding.symmetric(horizontal=8, vertical=4),
-                                            # 'text_style' is not a valid parameter for ButtonStyle in this flet version
-                                            # Button text styling will use defaults or can be set on the button/text itself if needed
                                         ),
                                         on_click=make_add_handler(sp)
                                     )
@@ -360,9 +381,6 @@ def main(page: ft.Page):
         on_pan_update=on_ai_pan_update
     )
 
-    fetch_products()
-    switch_tab(0)
-
     page.add(
         ft.Stack([
             content_area,
@@ -370,6 +388,8 @@ def main(page: ft.Page):
             draggable_ai
         ], expand=True)
     )
+
+    fetch_products()
 
 if __name__ == "__main__":
     ft.app(target=main)
