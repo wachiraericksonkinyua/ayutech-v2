@@ -330,7 +330,7 @@ def main(page: ft.Page):
         draggable_ai.visible = True
         bottom_nav_bar.selected_index = idx
         if idx == 0:
-            content_area.content = build_home_view(page, update_cart, update_wishlist, open_product_detail)
+            content_area.content = build_home_view(page, update_cart, update_wishlist, open_product_detail, switch_tab)
         elif idx == 1:
             content_area.content = build_browse_view(page, update_cart, update_wishlist, open_product_detail)
         elif idx == 2:
