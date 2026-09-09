@@ -239,7 +239,7 @@ async def generate_grounded_reply(customer_phone: str, user_message: str, image_
         "temperature": 0.2
     }
 
-    groq_endpoint = "https://api.groq.com/openai/v1/chat/completions"
+    groq_endpoint = "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)"
     reply = "Mambo! Nimemjulisha owner wa Ayutech Motors. Akutafutia hii part na atakujibu hivi karibuni!"
 
     async with httpx.AsyncClient() as client:
@@ -271,12 +271,21 @@ async def generate_fitment_response(messages: list) -> dict:
     try:
         res = supabase.table("products").select("id, name, category, price, stock_quantity, image_url").execute()
         all_products = getattr(res, "data", []) or []
-        keywords = [w for w in latest_user_query.split() if len(w) > 2]
         
+        q_lower = latest_user_query.lower()
+        search_terms = [w for w in q_lower.split() if len(w) > 2]
+        
+        if "frontlight" in q_lower or "front light" in q_lower:
+            search_terms.extend(["front", "light"])
+        if "gearbox" in q_lower:
+            search_terms.append("gear box")
+
         for p in all_products:
             p_name = str(p.get("name", "")).lower()
             p_cat = str(p.get("category", "")).lower()
-            if any(k in p_name or k in p_cat for k in keywords):
+            
+            score = sum(1 for term in search_terms if term in p_name or term in p_cat)
+            if score > 0 or any(part in p_name for part in ["7l", "1kd", "2kd", "hiace"] if part in q_lower):
                 matched_products.append(p)
                 matched_lines.append(
                     f"- {p.get('name')}: KES {float(p.get('price', 0)):,.0f} ({p.get('stock_quantity', 0)} in stock)"
@@ -285,9 +294,9 @@ async def generate_fitment_response(messages: list) -> dict:
         if not matched_lines:
             matched_lines = [
                 f"- {p.get('name')}: KES {float(p.get('price', 0)):,.0f} ({p.get('stock_quantity', 0)} in stock)"
-                for p in all_products[:6]
+                for p in all_products[:8]
             ]
-        catalog_summary = "\n".join(matched_lines[:8])
+        catalog_summary = "\n".join(matched_lines[:10])
     except Exception as e:
         print(f"Catalog sync error: {e}")
         catalog_summary = "Inventory syncing."
@@ -315,7 +324,7 @@ Relevant Inventory:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.post(
-                    "https://api.groq.com/openai/v1/chat/completions",
+                    "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)",
                     headers={
                         "Authorization": f"Bearer {groq_key}",
                         "Content-Type": "application/json"
@@ -335,8 +344,8 @@ Relevant Inventory:
         except Exception as err:
             print(f"Groq request error: {err}")
 
-    # Return top 2 matching products max for instant add-to-cart buttons
+    # Return top matching products max for instant add-to-cart buttons
     return {
         "reply": reply_text,
-        "products": matched_products[:2]
+        "products": matched_products[:4]
     }
