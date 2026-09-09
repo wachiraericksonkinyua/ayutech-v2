@@ -320,6 +320,8 @@ Relevant Inventory:
 
     reply_text = f"We have genuine auto parts in stock at Kirinyaga Road. For '{latest_user_query}', please check our Browse tab or speak with the store directly."
 
+    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+    
     if groq_key:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -330,7 +332,7 @@ Relevant Inventory:
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": "mixtral-8x7b-32768",
+                        "model": "llama-3.3-70b-versatile",
                         "messages": groq_messages,
                         "max_tokens": 100,
                         "temperature": 0.2
@@ -345,7 +347,7 @@ Relevant Inventory:
                     print(f"❌ Groq API Error Status {resp.status_code}: {resp.text}")
         except Exception as err:
             print(f"❌ Groq Request Exception: {err}")
-
+    
     # Return top matching products max for instant add-to-cart buttons
     return {
         "reply": reply_text,
