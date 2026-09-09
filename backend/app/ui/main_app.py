@@ -15,14 +15,23 @@ from app.ui.views.dashboard_view import build_dashboard_view
 API_BASE_URL = "https://ayutech-v2.onrender.com/api/v1"
 
 
+import time
+
 def build_loading_view():
+    logo_url = "https://raw.githubusercontent.com/wachiraericksonkinyua/ayutech-v2/main/images/ayutech%20logo.jpg"
     return ft.View(
         route="/loading",
         controls=[
             ft.Column(
                 [
-                    ft.ProgressRing(width=50, height=50, stroke_width=4, color="#DC2626"),
-                    ft.Text("Loading AyuTech Motors...", size=16, weight=ft.FontWeight.BOLD, color="#121212"),
+                    ft.Container(
+                        content=ft.Image(src=logo_url, width=140, height=140, fit=ft.ImageFit.CONTAIN),
+                        animate_opacity=ft.animation.Animation(1000, ft.AnimationCurve.EASE_IN_OUT),
+                    ),
+                    ft.Container(height=20),
+                    ft.ProgressRing(width=36, height=36, stroke_width=3, color="#DC2626"),
+                    ft.Container(height=12),
+                    ft.Text("Initializing AyuTech Motors...", size=13, weight=ft.FontWeight.W_600, color="#4B5563"),
                 ],
                 alignment=ft.MainAxisAlignment.CENTER,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -30,6 +39,7 @@ def build_loading_view():
         ],
         vertical_alignment=ft.MainAxisAlignment.CENTER,
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        bgcolor="#FFFFFF"
     )
 
 def main(page: ft.Page):
@@ -59,16 +69,32 @@ def main(page: ft.Page):
     # Show loading spinner immediately on startup
     content_area.content = build_loading_view()
 
+    # def fetch_products():
+    #     try:
+    #         res = httpx.get(f"{API_BASE_URL}/admin/products", timeout=5)
+    #         if res.status_code == 200 and len(res.json()) > 0:
+    #             all_products.clear()
+    #             all_products.extend(res.json())
+    #     except Exception as err:
+    #         print(f"Backend offline: {err}")
+    #     finally:
+    #         switch_tab(0)
     def fetch_products():
+        start_time = time.time()
         try:
-            res = httpx.get(f"{API_BASE_URL}/admin/products", timeout=5)
+            res = httpx.get(f"{API_BASE_URL}/admin/products", timeout=8)
             if res.status_code == 200 and len(res.json()) > 0:
                 all_products.clear()
                 all_products.extend(res.json())
         except Exception as err:
             print(f"Backend offline: {err}")
-        finally:
-            switch_tab(0)
+        
+        # Ensure splash screen stays visible for at least 2.5 seconds for smooth UX & image caching
+        elapsed = time.time() - start_time
+        if elapsed < 2.5:
+            time.sleep(2.5 - elapsed)
+            
+        switch_tab(0)
 
     def update_cart(p, qty=1):
         p_id = str(p.get("id"))
