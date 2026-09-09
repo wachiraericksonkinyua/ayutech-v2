@@ -23,13 +23,20 @@ def build_loading_container():
         alignment=ft.alignment.center,
         content=ft.Column(
             [
-                ft.Image(
-                    src=logo_url,
-                    width=150,
-                    height=150,
-                    fit=ft.ImageFit.CONTAIN
+                ft.Container(
+                    content=ft.Text("AYUTECH", size=28, weight=ft.FontWeight.BOLD, color="#DC2626"),
+                    padding=10
                 ),
-                ft.Container(height=24),
+                ft.Container(
+                    content=ft.Image(
+                        src=logo_url,
+                        width=140,
+                        height=140,
+                        fit=ft.ImageFit.CONTAIN
+                    ),
+                    border_radius=10,
+                ),
+                ft.Container(height=20),
                 ft.ProgressRing(width=36, height=36, stroke_width=3, color="#DC2626"),
                 ft.Container(height=12),
                 ft.Text("Initializing AyuTech Motors...", size=13, weight=ft.FontWeight.W_600, color="#4B5563"),
@@ -38,7 +45,6 @@ def build_loading_container():
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         )
     )
-
 def main(page: ft.Page):
     page.title = "AyuTech Motors Limited"
     page.theme_mode = ft.ThemeMode.LIGHT
