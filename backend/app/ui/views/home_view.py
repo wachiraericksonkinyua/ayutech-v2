@@ -20,7 +20,13 @@ def build_home_view(page: ft.Page, update_cart_callback, update_wishlist_callbac
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
     )
 
-    # Search Bar -> Navigates to Browse tab (index 1) on submit
+    from app.ui.state import active_search_query
+
+    def handle_search(e):
+        global active_search_query
+        active_search_query = search_input.value.strip() if search_input.value else ""
+        switch_tab_callback(1)
+
     search_input = ft.TextField(
         hint_text="Search auto parts...",
         hint_style=ft.TextStyle(color="#9CA3AF", size=12),
@@ -30,7 +36,7 @@ def build_home_view(page: ft.Page, update_cart_callback, update_wishlist_callbac
         content_padding=10,
         border_color="transparent",
         focused_border_color="#DC2626",
-        on_submit=lambda e: switch_tab_callback(1)  # Switches to Browse tab
+        on_submit=handle_search
     )
 
     search_bar = ft.Container(

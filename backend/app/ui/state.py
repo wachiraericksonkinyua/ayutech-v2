@@ -12,7 +12,7 @@ wishlist = {}  # {id: {name, price, image}}
 all_products = []
 current_category = "All"
 my_orders = []
-
+active_search_query = ""
 
 all_products = [
     {"id": "1", "name": "5-Speed Gearbox Assembly", "price": 65000, "category": "Gear Parts", "image_url": ""},
