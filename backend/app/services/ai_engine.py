@@ -321,7 +321,7 @@ Relevant Inventory:
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": "llama-3.1-8b-instant",
+                        "model": "openai/gpt-oss-20b",
                         "messages": groq_messages,
                         "max_tokens": 100,
                         "temperature": 0.2
