@@ -6,3 +6,4 @@ email-validator
 httpx
 python-dotenv
 slowapi
+python-multipart
