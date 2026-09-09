@@ -329,7 +329,9 @@ Relevant Inventory:
                 )
                 if resp.status_code == 200:
                     data = resp.json()
-                    reply_text = data["choices"][0]["message"]["content"]
+                    content = data["choices"][0]["message"]["content"]
+                    if content and content.strip():
+                        reply_text = content.strip()
         except Exception as err:
             print(f"Groq request error: {err}")
 
