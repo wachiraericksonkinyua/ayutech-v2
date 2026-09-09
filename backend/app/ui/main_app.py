@@ -11,6 +11,8 @@ from app.ui.views.profile_view import build_profile_view
 from app.ui.views.product_detail_view import build_product_detail_view
 from app.ui.views.dashboard_view import build_dashboard_view
 
+API_BASE_URL = "https://ayutech-v2.onrender.com/api/v1"
+
 def main(page: ft.Page):
     page.title = "AyuTech Motors Limited"
     page.theme_mode = ft.ThemeMode.LIGHT
