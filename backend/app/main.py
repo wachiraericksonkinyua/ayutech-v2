@@ -34,6 +34,7 @@ app.include_router(products.router, prefix="/api/v1/products", tags=["Product Ca
 app.include_router(whatsapp.router, prefix="/api/v1/whatsapp", tags=["WhatsApp Automation"])
 app.include_router(ai.router, prefix="/api/v1/ai", tags=["AI Assistant"])
 from app.routers import auth
+app.include_router(auth.router, prefix="/api/v1", tags=["Auth"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
 
 @app.get("/")
