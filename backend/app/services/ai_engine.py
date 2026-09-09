@@ -324,18 +324,19 @@ Relevant Inventory:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.post(
-                    "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)",
+                    "https://api.groq.com/openai/v1/chat/completions",
                     headers={
                         "Authorization": f"Bearer {groq_key}",
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": "llama-3.1-8b-instant",
+                        "model": "llama-3.3-70b-versatile",
                         "messages": groq_messages,
                         "max_tokens": 100,
                         "temperature": 0.2
                     }
                 )
+                
                 if resp.status_code == 200:
                     data = resp.json()
                     content = data["choices"][0]["message"]["content"]
