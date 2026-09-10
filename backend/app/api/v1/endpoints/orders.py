@@ -116,11 +116,16 @@ async def get_user_orders(customer_id: str):
 async def verify_receipt(payload: VerifyReceiptRequest):
     receipt = payload.receipt_number.strip().upper()
     
-    # Strict M-Pesa transaction format check (e.g., 10 alphanumeric characters)
+    # Strict M-Pesa transaction format check (10 alphanumeric characters)
     if not re.match(r"^[A-Z0-9]{10}$", receipt):
         raise HTTPException(status_code=400, detail="Invalid M-Pesa code format. Must be 10 characters.")
         
     try:
+        # Check if this receipt number was already used on another order
+        existing = supabase.table("orders").select("id").eq("receipt_number", receipt).execute()
+        if existing.data and len(existing.data) > 0:
+            raise HTTPException(status_code=400, detail="This M-Pesa receipt has already been used.")
+
         res = supabase.table("orders").update({
             "status": "Paid",
             "payment_status": "Paid",
@@ -129,6 +134,8 @@ async def verify_receipt(payload: VerifyReceiptRequest):
         }).eq("order_reference", payload.order_reference).execute()
         
         return {"status": "success", "message": "Order verified successfully!"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
