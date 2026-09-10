@@ -4,13 +4,13 @@ import flet as ft
 import httpx
 import threading
 import time
-from app.ui.state import my_orders, API_BASE_URL
+from app.ui.state import my_orders, API_BASE_URL, current_user_id
 
 def build_orders_view(page: ft.Page):
     orders_list_container = ft.Column(spacing=12)
 
     def get_badge_color(status: str) -> str:
-        if status == "Paid":
+        if status in ["Paid", "Processing"]:
             return "#25D366"       # Green
         elif status == "Fulfilled":
             return "#2563EB"      # Blue
@@ -23,15 +23,17 @@ def build_orders_view(page: ft.Page):
         status = ord_data.get("status", "Pending PIN")
         badge_color = get_badge_color(status)
         receipt_no = ord_data.get("receipt_number", "Pending Confirmation")
+        order_ref = ord_data.get("order_reference") or ord_data.get("order_id", "N/A")
+        order_date = ord_data.get("date") or ord_data.get("created_at", "")[:10]
 
         items_breakdown = ft.Column(spacing=8)
         for item in ord_data.get("items", []):
-            item_total = float(item.get("price", 0)) * int(item.get("qty", 1))
+            item_total = float(item.get("price", 0)) * int(item.get("qty", item.get("quantity", 1)))
             items_breakdown.controls.append(
                 ft.Row([
                     ft.Column([
                         ft.Text(item.get("name", "Product"), size=13, weight=ft.FontWeight.BOLD, color="#121212"),
-                        ft.Text(f"Qty: {item.get('qty', 1)} × KES {float(item.get('price', 0)):,.0f}", size=11, color="#6B7280")
+                        ft.Text(f"Qty: {item.get('qty', item.get('quantity', 1))} × KES {float(item.get('price', 0)):,.0f}", size=11, color="#6B7280")
                     ], expand=True),
                     ft.Text(f"KES {item_total:,.0f}", size=13, weight=ft.FontWeight.BOLD, color="#121212")
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
@@ -44,8 +46,8 @@ def build_orders_view(page: ft.Page):
                 # Header with Status
                 ft.Row([
                     ft.Column([
-                        ft.Text(f"Order #{ord_data.get('order_id')}", size=16, weight=ft.FontWeight.BOLD, color="#121212"),
-                        ft.Text(ord_data.get("date", ""), size=11, color="#9CA3AF")
+                        ft.Text(f"Order #{order_ref}", size=16, weight=ft.FontWeight.BOLD, color="#121212"),
+                        ft.Text(order_date, size=11, color="#9CA3AF")
                     ]),
                     ft.Container(
                         bgcolor=badge_color,
@@ -82,7 +84,7 @@ def build_orders_view(page: ft.Page):
                 # Total Amount
                 ft.Row([
                     ft.Text("Grand Total Paid", size=14, weight=ft.FontWeight.BOLD, color="#121212"),
-                    ft.Text(f"KES {float(ord_data.get('total', 0)):,.0f}", size=16, weight=ft.FontWeight.BOLD, color="#DC2626")
+                    ft.Text(f"KES {float(ord_data.get('total', ord_data.get('total_amount', 0))):,.0f}", size=16, weight=ft.FontWeight.BOLD, color="#DC2626")
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ], spacing=10, tight=True)
         )
@@ -109,20 +111,82 @@ def build_orders_view(page: ft.Page):
         dlg.open = False
         page.update()
 
+    def fetch_backend_orders():
+        """Fetches persistent user orders from the FastAPI backend database."""
+        if not current_user_id:
+            return
+        try:
+            res = httpx.get(f"{API_BASE_URL}/orders/user/{current_user_id}", timeout=5)
+            if res.status_code == 200:
+                backend_orders = res.json().get("orders", [])
+                
+                # Merge backend records safely into local state without dropping active items
+                for bo in backend_orders:
+                    bo_id = bo.get("order_reference") or bo.get("id")
+                    existing = next((o for o in my_orders if o.get("order_reference") == bo_id or o.get("order_id") == bo_id), None)
+                    if existing:
+                        existing["status"] = bo.get("status", existing["status"])
+                        existing["receipt_number"] = bo.get("receipt_number", existing.get("receipt_number"))
+                    else:
+                        my_orders.append({
+                            "order_id": bo.get("order_reference", bo.get("id", "N/A")[:6]),
+                            "order_reference": bo.get("order_reference"),
+                            "date": bo.get("created_at", "")[:10],
+                            "status": bo.get("status", "Pending PIN"),
+                            "fulfillment": bo.get("fulfillment", "Shop Pickup"),
+                            "payment_method": bo.get("payment_method", "M-Pesa"),
+                            "total": bo.get("total", bo.get("total_amount", 0)),
+                            "items": bo.get("items", []),
+                            "receipt_number": bo.get("receipt_number", "")
+                        })
+        except Exception as err:
+            print(f"Error fetching backend orders: {err}")
+
+    def manual_verify_payment(order_ref):
+        """Manually forces a sync query to the server for an order's status."""
+        try:
+            res = httpx.get(f"{API_BASE_URL}/orders/status/{order_ref}", timeout=5)
+            if res.status_code == 200:
+                data = res.json()
+                new_status = data.get("status")
+                new_receipt = data.get("receipt_number")
+                
+                # Update local orders state
+                for ord in my_orders:
+                    if ord.get("order_reference") == order_ref or ord.get("order_id") == order_ref:
+                        ord["status"] = new_status
+                        if new_receipt:
+                            ord["receipt_number"] = new_receipt
+
+                page.snack_bar = ft.SnackBar(
+                    ft.Text(f"Status checked: {new_status}"), 
+                    bgcolor="#25D366" if new_status in ["Paid", "Processing"] else "#DC2626"
+                )
+                page.snack_bar.open = True
+                render_orders()
+                page.update()
+        except Exception as err:
+            print(f"Manual verification error: {err}")
+
     def sync_orders_status() -> bool:
         has_changes = False
+        fetch_backend_orders()
         for ord in my_orders:
             if ord.get("status") in ["Pending", "Pending PIN"]:
-                order_id = ord.get("order_id")
+                order_ref = ord.get("order_reference") or ord.get("order_id")
                 try:
-                    res = httpx.get(f"{API_BASE_URL}/orders/status/{order_id}", timeout=4)
+                    res = httpx.get(f"{API_BASE_URL}/orders/status/{order_ref}", timeout=4)
                     if res.status_code == 200:
                         server_status = res.json().get("status")
+                        server_receipt = res.json().get("receipt_number")
                         if server_status and server_status != ord.get("status"):
                             ord["status"] = server_status
                             has_changes = True
+                        if server_receipt and server_receipt != ord.get("receipt_number"):
+                            ord["receipt_number"] = server_receipt
+                            has_changes = True
                 except Exception as err:
-                    print(f"Error syncing order {order_id}: {err}")
+                    print(f"Error syncing order {order_ref}: {err}")
         return has_changes
 
     def render_orders():
@@ -145,15 +209,30 @@ def build_orders_view(page: ft.Page):
         for ord in my_orders:
             items_detail = ft.Column(spacing=4)
             for itm in ord.get("items", []):
+                qty = itm.get('qty', itm.get('quantity', 1))
+                price = float(itm.get('price', 0))
                 items_detail.controls.append(
                     ft.Row([
-                        ft.Text(f"• {itm['name']} (x{itm['qty']})", size=11, color="#4B5563"),
-                        ft.Text(f"KES {itm['price']*itm['qty']:,.0f}", size=11, color="#121212", weight=ft.FontWeight.BOLD)
+                        ft.Text(f"• {itm.get('name', 'Product')} (x{qty})", size=11, color="#4B5563"),
+                        ft.Text(f"KES {price * qty:,.0f}", size=11, color="#121212", weight=ft.FontWeight.BOLD)
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
                 )
 
             status = ord.get("status", "Pending PIN")
             badge_color = get_badge_color(status)
+            order_id_display = ord.get("order_reference") or ord.get("order_id", "N/A")
+            order_date = ord.get("date", "Recent")
+            order_total = float(ord.get("total", ord.get("total_amount", 0)))
+
+            # Manual verify button container for pending orders
+            verify_btn = ft.Container()
+            if status in ["Pending", "Pending PIN"]:
+                verify_btn = ft.TextButton(
+                    "Check M-Pesa Status",
+                    icon=ft.icons.REFRESH,
+                    style=ft.ButtonStyle(color="#DC2626"),
+                    on_click=lambda e, ref=order_id_display: manual_verify_payment(ref)
+                )
 
             order_card = ft.Container(
                 bgcolor="#F9FAFB", border_radius=15, padding=15, border=ft.border.all(1, "#E5E7EB"),
@@ -162,7 +241,7 @@ def build_orders_view(page: ft.Page):
                     ft.Row([
                         ft.Row([
                             ft.Icon(ft.icons.RECEIPT_OUTLINED, size=16, color="#DC2626"),
-                            ft.Text(f"Order #{ord['order_id']}", size=13, weight=ft.FontWeight.BOLD, color="#121212"),
+                            ft.Text(f"Order #{order_id_display}", size=13, weight=ft.FontWeight.BOLD, color="#121212"),
                         ], spacing=6),
                         ft.Container(
                             bgcolor=badge_color,
@@ -170,14 +249,15 @@ def build_orders_view(page: ft.Page):
                             content=ft.Text(status, size=10, color="white", weight=ft.FontWeight.BOLD)
                         )
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                    ft.Text(ord["date"], size=11, color="#9CA3AF"),
+                    ft.Text(order_date, size=11, color="#9CA3AF"),
                     ft.Divider(color="#E5E7EB"),
                     items_detail,
                     ft.Divider(color="#E5E7EB"),
                     ft.Row([
-                        ft.Text(f"{ord['fulfillment']} • {ord['payment_method']}", size=11, color="#6B7280"),
-                        ft.Text(f"KES {ord['total']:,.0f}", size=14, weight=ft.FontWeight.BOLD, color="#DC2626")
+                        ft.Text(f"{ord.get('fulfillment', 'Pickup')} • {ord.get('payment_method', 'M-Pesa')}", size=11, color="#6B7280"),
+                        ft.Text(f"KES {order_total:,.0f}", size=14, weight=ft.FontWeight.BOLD, color="#DC2626")
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                    verify_btn,
                     ft.Text("Tap to view full receipt", size=10, color="#9CA3AF", italic=True)
                 ], spacing=6)
             )
@@ -192,7 +272,7 @@ def build_orders_view(page: ft.Page):
         while True:
             pending_exists = any(o.get("status") in ["Pending", "Pending PIN"] for o in my_orders)
             if not pending_exists:
-                break
+                time.sleep(5)
             changed = sync_orders_status()
             if changed:
                 render_orders()
