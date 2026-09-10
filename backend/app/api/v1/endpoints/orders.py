@@ -114,30 +114,56 @@ async def get_user_orders(customer_id: str):
 
 @router.post("/verify-receipt")
 async def verify_receipt(payload: VerifyReceiptRequest):
-    receipt = payload.receipt_number.strip().upper()
-    
-    # Strict M-Pesa transaction format check (10 alphanumeric characters)
-    # Strict M-Pesa format: 3 uppercase letters followed by 7 alphanumeric chars (e.g., QW12345678)
-    if not re.match(r"^[A-Z]{3}[A-Z0-9]{7}$", receipt):
-        raise HTTPException(status_code=400, detail="Invalid M-Pesa format. Must start with 3 letters followed by 7 characters.")
-    try:
-        # Check if this receipt code was already used
-        existing = supabase.table("orders").select("id").eq("receipt_number", receipt).execute()
-        if existing.data and len(existing.data) > 0:
-            raise HTTPException(status_code=400, detail="This M-Pesa receipt has already been used.")
+    order_ref = payload.order_reference.strip()
 
-        res = supabase.table("orders").update({
-            "status": "Paid",
-            "payment_status": "Paid",
-            "receipt_number": receipt,
-            "mpesa_receipt": receipt
-        }).eq("order_reference", payload.order_reference).execute()
-        
-        return {"status": "success", "message": "Order verified successfully!"}
+    try:
+        # Check the order in database to see if a valid payment callback ever landed
+        res = supabase.table("orders").select("*").eq("order_reference", order_ref).execute()
+        data = getattr(res, "data", None)
+
+        if not isinstance(data, list) or not data:
+            raise HTTPException(status_code=400, detail="Order reference not found.")
+
+        first_record = data[0]
+        if not isinstance(first_record, dict):
+            raise HTTPException(status_code=400, detail="Order record is invalid.")
+
+        order_status = first_record.get("status")
+        if order_status in ["Paid", "Fulfilled"]:
+            return {"status": "success", "message": "Order is already verified as Paid!"}
+
+        raise HTTPException(status_code=400, detail="Payment not detected on M-Pesa network yet.")
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# @router.post("/verify-receipt")
+# async def verify_receipt(payload: VerifyReceiptRequest):
+#     receipt = payload.receipt_number.strip().upper()
+    
+#     # Strict M-Pesa transaction format check (10 alphanumeric characters)
+#     # Strict M-Pesa format: 3 uppercase letters followed by 7 alphanumeric chars (e.g., QW12345678)
+#     if not re.match(r"^[A-Z]{3}[A-Z0-9]{7}$", receipt):
+#         raise HTTPException(status_code=400, detail="Invalid M-Pesa format. Must start with 3 letters followed by 7 characters.")
+#     try:
+#         # Check if this receipt code was already used
+#         existing = supabase.table("orders").select("id").eq("receipt_number", receipt).execute()
+#         if existing.data and len(existing.data) > 0:
+#             raise HTTPException(status_code=400, detail="This M-Pesa receipt has already been used.")
+
+#         res = supabase.table("orders").update({
+#             "status": "Paid",
+#             "payment_status": "Paid",
+#             "receipt_number": receipt,
+#             "mpesa_receipt": receipt
+#         }).eq("order_reference", payload.order_reference).execute()
+        
+#         return {"status": "success", "message": "Order verified successfully!"}
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
     
 # @router.post("/checkout", status_code=201)
 # @limiter.limit("5/minute")
