@@ -113,15 +113,20 @@ async def get_user_orders(customer_id: str):
 
 @router.post("/verify-receipt")
 async def verify_receipt(payload: VerifyReceiptRequest):
+    receipt = payload.receipt_number.strip()
+    # Basic validation for M-Pesa receipt format (e.g., 10 alphanumeric chars)
+    if len(receipt) < 8 or not receipt.isalnum():
+        raise HTTPException(status_code=400, detail="Invalid M-Pesa receipt format.")
+        
     try:
         res = supabase.table("orders").update({
             "status": "Paid",
             "payment_status": "Paid",
-            "receipt_number": payload.receipt_number,
-            "mpesa_receipt": payload.receipt_number
+            "receipt_number": receipt,
+            "mpesa_receipt": receipt
         }).eq("order_reference", payload.order_reference).execute()
         
-        return {"status": "success", "message": "Order manually verified and marked as Paid!"}
+        return {"status": "success", "message": "Order verified successfully!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

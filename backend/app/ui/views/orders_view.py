@@ -67,6 +67,7 @@ def build_orders_view(page: ft.Page):
             ], spacing=8),
             margin=ft.margin.symmetric(vertical=4)
         ) if status in ["Pending", "Pending PIN"] else ft.Container()
+        
         items_breakdown = ft.Column(spacing=8)
         for item in ord_data.get("items", []):
             item_total = float(item.get("price", 0)) * int(item.get("qty", item.get("quantity", 1)))

@@ -6,6 +6,7 @@ from app.db.supabase_client import supabase
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, EmailStr
 from app.db.supabase_client import supabase
+from app.ui.state import current_user_id, user_info
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 

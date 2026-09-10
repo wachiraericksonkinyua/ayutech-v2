@@ -107,10 +107,15 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback)
     def handle_logout(e):
         global current_logged_in_user
         current_logged_in_user = None
+        from app.ui.state import my_orders, wishlist, current_user_id
+        my_orders.clear()
+        wishlist.clear()
+        current_user_id = ""
         page.snack_bar = ft.SnackBar(content=ft.Text("Logged out successfully."), bgcolor="#DC2626")
         page.snack_bar.open = True
         switch_tab_callback(4)
 
+        
     def handle_login_success(user_data):
         """Callback for successful login from the auth view."""
         global current_logged_in_user
