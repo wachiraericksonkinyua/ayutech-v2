@@ -118,10 +118,10 @@ async def verify_receipt(payload: VerifyReceiptRequest):
     
     # Strict M-Pesa transaction format check (10 alphanumeric characters)
     if not re.match(r"^[A-Z0-9]{10}$", receipt):
-        raise HTTPException(status_code=400, detail="Invalid M-Pesa code format. Must be 10 characters.")
+        raise HTTPException(status_code=400, detail="Invalid M-Pesa code format. Must be exactly 10 characters.")
         
     try:
-        # Check if this receipt number was already used on another order
+        # Check if this receipt code was already used
         existing = supabase.table("orders").select("id").eq("receipt_number", receipt).execute()
         if existing.data and len(existing.data) > 0:
             raise HTTPException(status_code=400, detail="This M-Pesa receipt has already been used.")
@@ -138,7 +138,6 @@ async def verify_receipt(payload: VerifyReceiptRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
     
 # @router.post("/checkout", status_code=201)
 # @limiter.limit("5/minute")
