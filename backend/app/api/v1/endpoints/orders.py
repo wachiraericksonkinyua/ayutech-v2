@@ -117,9 +117,9 @@ async def verify_receipt(payload: VerifyReceiptRequest):
     receipt = payload.receipt_number.strip().upper()
     
     # Strict M-Pesa transaction format check (10 alphanumeric characters)
-    if not re.match(r"^[A-Z0-9]{10}$", receipt):
-        raise HTTPException(status_code=400, detail="Invalid M-Pesa code format. Must be exactly 10 characters.")
-        
+    # Strict M-Pesa format: 3 uppercase letters followed by 7 alphanumeric chars (e.g., QW12345678)
+    if not re.match(r"^[A-Z]{3}[A-Z0-9]{7}$", receipt):
+        raise HTTPException(status_code=400, detail="Invalid M-Pesa format. Must start with 3 letters followed by 7 characters.")
     try:
         # Check if this receipt code was already used
         existing = supabase.table("orders").select("id").eq("receipt_number", receipt).execute()
