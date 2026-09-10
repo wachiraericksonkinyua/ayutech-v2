@@ -10,14 +10,16 @@ def build_orders_view(page: ft.Page):
     orders_list_container = ft.Column(spacing=12)
 
     def get_badge_color(status: str) -> str:
-        if status in ["Paid", "Processing"]:
+        s = (status or "").lower()
+        if "paid" in s or "processing" in s:
             return "#25D366"       # Green
-        elif status == "Fulfilled":
+        elif "fulfilled" in s:
             return "#2563EB"      # Blue
-        elif status in ["Cancelled", "Payment Failed", "Failed"]:
+        elif "cancel" in s or "fail" in s:
             return "#6B7280"      # Gray
         return "#DC2626"          # Red for Pending / Pending PIN
 
+    
     def show_receipt_dialog(ord_data: dict):
         """Displays a structured receipt modal when an order is tapped."""
         status = ord_data.get("status", "Pending PIN")
