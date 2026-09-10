@@ -53,11 +53,20 @@ def build_orders_view(page: ft.Page):
             except Exception as err:
                 print(f"Manual code entry error: {err}")
 
-        verify_action_row = ft.Row([
-            receipt_input,
-            ft.ElevatedButton("Verify", bgcolor="#DC2626", color="white", on_click=submit_manual_receipt)
-        ], spacing=8) if status in ["Pending", "Pending PIN"] else ft.Container()
-        
+        verify_action_row = ft.Container(
+            content=ft.Row([
+                ft.Container(content=receipt_input, expand=True),
+                ft.ElevatedButton(
+                    "Verify", 
+                    bgcolor="#DC2626", 
+                    color="white", 
+                    height=40,
+                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+                    on_click=submit_manual_receipt
+                )
+            ], spacing=8),
+            margin=ft.margin.symmetric(vertical=4)
+        ) if status in ["Pending", "Pending PIN"] else ft.Container()
         items_breakdown = ft.Column(spacing=8)
         for item in ord_data.get("items", []):
             item_total = float(item.get("price", 0)) * int(item.get("qty", item.get("quantity", 1)))
