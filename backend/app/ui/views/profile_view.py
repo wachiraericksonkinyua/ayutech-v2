@@ -114,7 +114,16 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback)
     def handle_login_success(user_data):
         """Callback for successful login from the auth view."""
         global current_logged_in_user
-        email = user_data.get("email") if isinstance(user_data, dict) else getattr(user_data, "email", "")
+        from app.ui.state import current_user_id, user_info
+        
+        if isinstance(user_data, dict):
+            current_user_id = user_data.get("id", "")
+            user_info["email"] = user_data.get("email", "")
+        else:
+            current_user_id = getattr(user_data, "id", "")
+            user_info["email"] = getattr(user_data, "email", "")
+
+        email = user_info["email"]
         
         try:
             res = httpx.get(f"{API_BASE_URL}/auth/profile", params={"email": email}, timeout=5)
