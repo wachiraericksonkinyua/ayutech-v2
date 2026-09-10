@@ -1,7 +1,9 @@
+# app/ui/views/cart_view.py
+
 import flet as ft
 import httpx
 import datetime
-from app.ui.state import cart, my_orders, API_BASE_URL
+from app.ui.state import cart, my_orders, API_BASE_URL, current_user_id
 
 def format_phone_number(raw: str) -> str:
     cleaned = "".join(filter(str.isdigit, raw))
@@ -98,7 +100,7 @@ def build_cart_view(page: ft.Page, change_qty_callback):
                     ft.Row([
                         ft.IconButton(ft.icons.REMOVE, icon_size=16, icon_color="white", bgcolor="#121212", on_click=lambda e, pid=p_id: change_qty_callback(pid, -1)),
                         ft.Text(str(item["qty"]), size=13, weight=ft.FontWeight.BOLD, color="#121212"),
-                        ft.IconButton(ft.icons.ADD, icon_size=16, icon_color="white", bgcolor="#DC2626", on_click=lambda e, pid=p_id: change_qty_callback(pid, 1)),
+                        ft.IconButton(ft.icons.ADD, icon_size=16, icon_color="white", bgcolor="#121212", on_click=lambda e, pid=p_id: change_qty_callback(pid, 1)),
                     ], spacing=2)
                 ])
             )
@@ -237,7 +239,8 @@ def build_cart_view(page: ft.Page, change_qty_callback):
             "location": f"{zone_dropdown.value} - {landmark_input.value}" if fulfillment_type == "delivery" else "Kirinyaga Road Shop",
             "payment_method": "M-Pesa STK Push" if selected_payment == "mpesa" else "Cash on Pickup",
             "items": items_payload,
-            "total": float(final_total)
+            "total": float(final_total),
+            "customer_id": current_user_id or None  # Links order to the logged-in user profile
         }
 
         try:

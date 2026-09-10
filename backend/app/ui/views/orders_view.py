@@ -43,13 +43,17 @@ def build_orders_view(page: ft.Page):
                     json={"order_reference": order_ref, "receipt_number": code},
                     timeout=5
                 )
+                data = res.json()
                 if res.status_code == 200:
                     page.snack_bar = ft.SnackBar(ft.Text("✅ Order successfully verified!"), bgcolor="#16A34A")
                     page.snack_bar.open = True
                     close_dialog(receipt_dialog)
                     sync_orders_status()
                     render_orders()
-                    page.update()
+                else:
+                    page.snack_bar = ft.SnackBar(ft.Text(data.get("detail", "Invalid receipt code.")), bgcolor="#DC2626")
+                    page.snack_bar.open = True
+                page.update()
             except Exception as err:
                 print(f"Manual code entry error: {err}")
 
@@ -67,7 +71,7 @@ def build_orders_view(page: ft.Page):
             ], spacing=8),
             margin=ft.margin.symmetric(vertical=4)
         ) if status in ["Pending", "Pending PIN"] else ft.Container()
-        
+
         items_breakdown = ft.Column(spacing=8)
         for item in ord_data.get("items", []):
             item_total = float(item.get("price", 0)) * int(item.get("qty", item.get("quantity", 1)))
