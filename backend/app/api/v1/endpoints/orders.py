@@ -22,6 +22,7 @@ class CheckoutRequest(BaseModel):
     payment_method: str
     items: List[OrderItem]
     total: float
+    customer_id: Optional[str] = None # Added to map orders to the user account
 
 @router.post("/checkout", status_code=201)
 @limiter.limit("5/minute")
@@ -47,6 +48,7 @@ async def process_checkout(request: Request, payload: CheckoutRequest):
             "id": order_uuid,
             "order_reference": short_ref,
             "checkout_request_id": checkout_request_id,
+            "customer_id": payload.customer_id, # Links order directly to the user profile
             "customer_phone": payload.phone,
             "phone": payload.phone,
             "fulfillment": payload.fulfillment,
@@ -89,6 +91,23 @@ async def get_order_status(order_ref: str):
     except Exception as e:
         print(f"Status check error: {e}")
     return {"status": "Pending PIN", "receipt_number": ""}
+
+
+@router.get("/user/{customer_id}")
+async def get_user_orders(customer_id: str):
+    """
+    Fetch all order history records linked to a specific user UUID.
+    """
+    try:
+        res = supabase.table("orders").select("*").eq("customer_id", customer_id).order("total", desc=True).execute()
+        orders_list = res.data if hasattr(res, "data") else []
+        return {"status": "success", "orders": orders_list}
+    except Exception as e:
+        print(f"Fetch user orders error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
 # @router.post("/checkout", status_code=201)
 # @limiter.limit("5/minute")
 # async def process_checkout(request: Request, payload: CheckoutRequest):

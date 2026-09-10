@@ -36,7 +36,7 @@ app.include_router(ai.router, prefix="/api/v1/ai", tags=["AI Assistant"])
 from app.routers import auth
 app.include_router(auth.router, prefix="/api/v1", tags=["Auth"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
-
+app.include_router(orders.router, prefix="/api/v1/orders", tags=["Orders"])
 @app.get("/")
 def root():
     return {
