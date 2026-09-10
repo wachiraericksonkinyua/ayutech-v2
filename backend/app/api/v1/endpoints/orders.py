@@ -24,6 +24,11 @@ class CheckoutRequest(BaseModel):
     total: float
     customer_id: Optional[str] = None # Added to map orders to the user account
 
+class VerifyReceiptRequest(BaseModel):
+    order_reference: str
+    receipt_number: str
+
+
 @router.post("/checkout", status_code=201)
 @limiter.limit("5/minute")
 async def process_checkout(request: Request, payload: CheckoutRequest):
@@ -106,7 +111,19 @@ async def get_user_orders(customer_id: str):
         print(f"Fetch user orders error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
+@router.post("/verify-receipt")
+async def verify_receipt(payload: VerifyReceiptRequest):
+    try:
+        res = supabase.table("orders").update({
+            "status": "Paid",
+            "payment_status": "Paid",
+            "receipt_number": payload.receipt_number,
+            "mpesa_receipt": payload.receipt_number
+        }).eq("order_reference", payload.order_reference).execute()
+        
+        return {"status": "success", "message": "Order manually verified and marked as Paid!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # @router.post("/checkout", status_code=201)
 # @limiter.limit("5/minute")

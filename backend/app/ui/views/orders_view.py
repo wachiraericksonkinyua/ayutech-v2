@@ -25,7 +25,39 @@ def build_orders_view(page: ft.Page):
         receipt_no = ord_data.get("receipt_number", "Pending Confirmation")
         order_ref = ord_data.get("order_reference") or ord_data.get("order_id", "N/A")
         order_date = ord_data.get("date") or ord_data.get("created_at", "")[:10]
+        # Inside show_receipt_dialog() in orders_view.py:
+        receipt_input = ft.TextField(
+            label="M-Pesa Code (e.g. UIA9U5Y7NU)",
+            text_size=12,
+            height=40,
+            border_color="#DC2626"
+        )
 
+        def submit_manual_receipt(e):
+            code = (receipt_input.value or "").strip()
+            if not code:
+                return
+            try:
+                res = httpx.post(
+                    f"{API_BASE_URL}/orders/verify-receipt",
+                    json={"order_reference": order_ref, "receipt_number": code},
+                    timeout=5
+                )
+                if res.status_code == 200:
+                    page.snack_bar = ft.SnackBar(ft.Text("✅ Order successfully verified!"), bgcolor="#16A34A")
+                    page.snack_bar.open = True
+                    close_dialog(receipt_dialog)
+                    sync_orders_status()
+                    render_orders()
+                    page.update()
+            except Exception as err:
+                print(f"Manual code entry error: {err}")
+
+        verify_action_row = ft.Row([
+            receipt_input,
+            ft.ElevatedButton("Verify", bgcolor="#DC2626", color="white", on_click=submit_manual_receipt)
+        ], spacing=8) if status in ["Pending", "Pending PIN"] else ft.Container()
+        
         items_breakdown = ft.Column(spacing=8)
         for item in ord_data.get("items", []):
             item_total = float(item.get("price", 0)) * int(item.get("qty", item.get("quantity", 1)))
@@ -72,6 +104,11 @@ def build_orders_view(page: ft.Page):
                     ft.Text("Payment Mode:", size=12, color="#6B7280"),
                     ft.Text(ord_data.get("payment_method", "M-Pesa"), size=12, weight=ft.FontWeight.BOLD, color="#121212")
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+
+                ft.Divider(color="#E5E7EB"),
+
+                # Manual M-Pesa Code Input Field (Shows up if pending)
+                verify_action_row,
 
                 ft.Divider(color="#E5E7EB"),
 
