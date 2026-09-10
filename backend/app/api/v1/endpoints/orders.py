@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Request
 from app.services.daraja_service import DarajaService
 from app.db.supabase_client import supabase
 from app.core.rate_limiter import limiter
+import re
 
 router = APIRouter()
 
@@ -113,10 +114,11 @@ async def get_user_orders(customer_id: str):
 
 @router.post("/verify-receipt")
 async def verify_receipt(payload: VerifyReceiptRequest):
-    receipt = payload.receipt_number.strip()
-    # Basic validation for M-Pesa receipt format (e.g., 10 alphanumeric chars)
-    if len(receipt) < 8 or not receipt.isalnum():
-        raise HTTPException(status_code=400, detail="Invalid M-Pesa receipt format.")
+    receipt = payload.receipt_number.strip().upper()
+    
+    # Strict M-Pesa transaction format check (e.g., 10 alphanumeric characters)
+    if not re.match(r"^[A-Z0-9]{10}$", receipt):
+        raise HTTPException(status_code=400, detail="Invalid M-Pesa code format. Must be 10 characters.")
         
     try:
         res = supabase.table("orders").update({
@@ -130,6 +132,7 @@ async def verify_receipt(payload: VerifyReceiptRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+    
 # @router.post("/checkout", status_code=201)
 # @limiter.limit("5/minute")
 # async def process_checkout(request: Request, payload: CheckoutRequest):
