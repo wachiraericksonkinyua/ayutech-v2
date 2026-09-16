@@ -166,14 +166,15 @@ def build_orders_view(page: ft.Page):
 
     def fetch_backend_orders():
         """Fetches persistent user orders from the FastAPI backend database."""
-        if not current_user_id:
+        import app.ui.state as app_state
+        identifier = app_state.current_user_id or app_state.user_info.get("email")
+        if not identifier:
             return
         try:
-            res = httpx.get(f"{API_BASE_URL}/orders/user/{current_user_id}", timeout=5)
+            res = httpx.get(f"{API_BASE_URL}/orders/user/{identifier}", timeout=5)
             if res.status_code == 200:
                 backend_orders = res.json().get("orders", [])
                 
-                # Merge backend records safely into local state without dropping active items
                 for bo in backend_orders:
                     bo_id = bo.get("order_reference") or bo.get("id")
                     existing = next((o for o in my_orders if o.get("order_reference") == bo_id or o.get("order_id") == bo_id), None)

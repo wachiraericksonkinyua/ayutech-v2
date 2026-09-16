@@ -124,7 +124,6 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback)
         email = user_dict.get("email") or getattr(user_data, "email", "")
         app_state.user_info["email"] = email
 
-        # Fetch the customer profile to guarantee we bind the exact Supabase UUID
         try:
             res = httpx.get(f"{API_BASE_URL}/auth/profile", params={"email": email}, timeout=5)
             if res.status_code == 200:
@@ -138,11 +137,12 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback)
             current_logged_in_user = user_dict
             app_state.current_user_id = str(user_dict.get("id") or user_dict.get("user_id", ""))
 
+        # Immediately fetch backend orders right upon login success!
+
         page.snack_bar = ft.SnackBar(content=ft.Text("Successfully logged in!"), bgcolor="#16A34A")
         page.snack_bar.open = True
         switch_tab_callback(4)
 
-        
     def open_external_url(url: str):
         page.launch_url(url)
 
