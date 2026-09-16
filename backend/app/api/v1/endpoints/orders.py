@@ -52,7 +52,7 @@ async def process_checkout(request: Request, payload: CheckoutRequest):
                 print(f"Daraja STK Push warning: {stk_err}")
                 checkout_request_id = f"sim_{short_ref}"
 
-                
+
         # Validate customer_id to ensure it's a valid non-empty UUID string
         valid_customer_id = None
         if payload.customer_id and str(payload.customer_id).strip() not in ["", "None", "null"]:
@@ -94,12 +94,17 @@ async def process_checkout(request: Request, payload: CheckoutRequest):
 async def get_user_orders(identifier: str):
     try:
         orders_list = []
-        clean_id = identifier.strip()
+        clean_id = (identifier or "").strip()
 
+        if not clean_id or clean_id in ["None", "null", "undefined"]:
+            return {"status": "success", "orders": []}
+
+        # 1. If it looks like a UUID, query customer_id directly
         if len(clean_id) > 30 and "-" in clean_id:
             res = supabase.table("orders").select("*").eq("customer_id", clean_id).order("created_at", desc=True).execute()
             orders_list = res.data if hasattr(res, "data") else []
 
+        # 2. If it's an email, find the user ID from customers table
         if not orders_list and "@" in clean_id:
             cust_res = supabase.table("customers").select("id").ilike("email", clean_id).execute()
             cust_data = getattr(cust_res, "data", None) or []
@@ -108,10 +113,7 @@ async def get_user_orders(identifier: str):
                 res2 = supabase.table("orders").select("*").eq("customer_id", real_id).order("created_at", desc=True).execute()
                 orders_list = res2.data if hasattr(res2, "data") else []
 
-        if not orders_list:
-            res_all = supabase.table("orders").select("*").order("created_at", desc=True).limit(10).execute()
-            orders_list = res_all.data if hasattr(res_all, "data") else []
-
+        # NO FALLBACK: If not authenticated or no orders match, return empty list!
         return {"status": "success", "orders": orders_list}
     except Exception as e:
         print(f"Fetch user orders error: {e}")

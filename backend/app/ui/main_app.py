@@ -368,9 +368,26 @@ def main(page: ft.Page):
         if idx is None:
             idx = 0
 
+        # Check if user is trying to access protected tabs (Cart=2, Orders=3) while logged out
+        import app.ui.views.profile_view as profile_mod
+        from app.ui.state import current_user_id
+        
+        is_logged_in = profile_mod.current_logged_in_user is not None or bool(current_user_id)
+
+        if idx in [2, 3] and not is_logged_in:
+            page.snack_bar = ft.SnackBar(
+                content=ft.Text("🔒 Please sign in or create an account to view cart and orders."),
+                bgcolor="#DC2626"
+            )
+            page.snack_bar.open = True
+            page.update()
+            # Force redirect to Hub / Profile tab
+            idx = 4
+
         floating_footer.visible = True
         draggable_ai.visible = True
         bottom_nav_bar.selected_index = idx
+
         if idx == 0:
             content_area.content = build_home_view(page, update_cart, update_wishlist, open_product_detail, switch_tab)
         elif idx == 1:

@@ -311,26 +311,29 @@ def build_orders_view(page: ft.Page):
       print(f'Manual verification error: {err}')
 
   def sync_orders_status() -> bool:
-    has_changes = fetch_backend_orders()
-    for ord in my_orders:
-      order_ref = ord.get('order_reference') or ord.get('order_id')
-      if order_ref:
-        try:
-          res = httpx.get(
-              f'{API_BASE_URL}/orders/status/{order_ref}', timeout=4
-          )
-          if res.status_code == 200:
-            server_status = res.json().get('status')
-            server_receipt = res.json().get('receipt_number')
-            if server_status and server_status != ord.get('status'):
-              ord['status'] = server_status
-              has_changes = True
-            if server_receipt and server_receipt != ord.get('receipt_number'):
-              ord['receipt_number'] = server_receipt
-              has_changes = True
-        except Exception as err:
-          print(f'Error syncing order {order_ref}: {err}')
-    return has_changes
+        has_changes = fetch_backend_orders()
+        for ord in my_orders:
+            # Skip polling if order is already completed/cancelled or a simulated local reference
+            status = ord.get("status", "")
+            order_ref = ord.get("order_reference") or ord.get("order_id")
+            if not order_ref or status in ["Paid", "Fulfilled", "Cancelled", "Payment Failed"]:
+                continue
+                
+            if order_ref:
+                try:
+                    res = httpx.get(f"{API_BASE_URL}/orders/status/{order_ref}", timeout=4)
+                    if res.status_code == 200:
+                        server_status = res.json().get("status")
+                        server_receipt = res.json().get("receipt_number")
+                        if server_status and server_status != ord.get("status"):
+                            ord["status"] = server_status
+                            has_changes = True
+                        if server_receipt and server_receipt != ord.get("receipt_number"):
+                            ord["receipt_number"] = server_receipt
+                            has_changes = True
+                except Exception as err:
+                    print(f"Error syncing order {order_ref}: {err}")
+        return has_changes
 
   def render_orders():
     orders_list_container.controls.clear()
