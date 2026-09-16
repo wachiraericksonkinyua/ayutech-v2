@@ -49,7 +49,6 @@ def login_user(payload: AuthPayload):
         if res.session is None:
             raise HTTPException(status_code=401, detail="Login failed: no active session returned.")
 
-        # res may be an object or dict depending on client; normalize
         session = getattr(res, "session", None) or (res.get("session") if isinstance(res, dict) else None)
         user_obj = getattr(res, "user", None) or (res.get("user") if isinstance(res, dict) else None)
 
@@ -61,6 +60,15 @@ def login_user(payload: AuthPayload):
         if user_obj:
             user_id = user_obj.id if hasattr(user_obj, "id") else user_obj.get("id")
             user_email = user_obj.email if hasattr(user_obj, "email") else user_obj.get("email")
+
+            # Automatically ensure customer exists in public.customers table
+            try:
+                supabase.table("customers").upsert({
+                    "id": str(user_id),
+                    "email": user_email
+                }).execute()
+            except Exception as db_err:
+                print(f"Customer auto-mirror warning: {db_err}")
 
         return {
             "status": "success",

@@ -121,34 +121,31 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback)
         import app.ui.state as app_state
         
         user_dict = user_data if isinstance(user_data, dict) else {}
+        extracted_id = (
+            user_dict.get("id") or 
+            user_dict.get("user_id") or 
+            getattr(user_data, "id", None) or 
+            getattr(user_data, "user_id", "")
+        )
         email = user_dict.get("email") or getattr(user_data, "email", "")
+        
+        app_state.current_user_id = str(extracted_id).strip()
         app_state.user_info["email"] = email
 
-        # Fetch the customer profile to get the exact database UUID
-        try:
-            res = httpx.get(f"{API_BASE_URL}/auth/profile", params={"email": email}, timeout=5)
-            if res.status_code == 200:
-                profile = res.json()
-                current_logged_in_user = profile
-                app_state.current_user_id = str(profile.get("id"))
-            else:
-                current_logged_in_user = user_dict
-                app_state.current_user_id = str(user_dict.get("id") or user_dict.get("user_id", ""))
-        except Exception:
-            current_logged_in_user = user_dict
-            app_state.current_user_id = str(user_dict.get("id") or user_dict.get("user_id", ""))
+        current_logged_in_user = {
+            "id": app_state.current_user_id,
+            "email": email
+        }
 
         page.snack_bar = ft.SnackBar(content=ft.Text("Successfully logged in!"), bgcolor="#16A34A")
         page.snack_bar.open = True
         switch_tab_callback(4)
 
-    if not current_logged_in_user:
-        return build_auth_view(page, handle_login_success)
-
     def open_external_url(url: str):
         page.launch_url(url)
 
     MAPS_EXACT_URL = "https://maps.app.goo.gl/iqoFy4be7SWYxCuJ8"
+    logged_in_email = current_logged_in_user.get("email") if current_logged_in_user else "Guest"
 
     header_banner = ft.Container(
         padding=20,
@@ -172,7 +169,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback)
             ], spacing=12),
             ft.Divider(color="#262626", height=15),
             ft.Row([
-                ft.Text(f"Logged in as: {current_logged_in_user.get('email')}", size=11, color="#D1D5DB", weight=ft.FontWeight.BOLD),
+                ft.Text(f"Logged in as: {logged_in_email}", size=11, color="#D1D5DB", weight=ft.FontWeight.BOLD),
                 ft.TextButton("Sign Out", style=ft.ButtonStyle(color="#DC2626"), on_click=handle_logout)
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
         ], spacing=4)
