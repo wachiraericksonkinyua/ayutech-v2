@@ -130,7 +130,14 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback)
         )
         
         app_state.current_user_id = str(extracted_id).strip()
-        app_state.user_info["email"] = user_dict.get("email") or getattr(user_data, "email", "")
+        email = user_dict.get("email") or getattr(user_data, "email", "")
+        app_state.user_info["email"] = email
+
+        # CRITICAL FIX: Populate current_logged_in_user so the profile dashboard renders!
+        current_logged_in_user = {
+            "id": app_state.current_user_id,
+            "email": email
+        }
 
         page.snack_bar = ft.SnackBar(content=ft.Text("Successfully logged in!"), bgcolor="#16A34A")
         page.snack_bar.open = True
