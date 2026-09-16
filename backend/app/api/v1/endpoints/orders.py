@@ -103,13 +103,26 @@ async def get_order_status(order_ref: str):
 @router.get("/user/{customer_id}")
 async def get_user_orders(customer_id: str):
     try:
+        # Try fetching by exact customer_id UUID first
         res = supabase.table("orders").select("*").eq("customer_id", customer_id).order("total", desc=True).execute()
         orders_list = res.data if hasattr(res, "data") else []
+
+        # Fallback: if none found by UUID, try matching by phone or customer reference if customer_id looks like an email or phone
+        if not orders_list and "@" in customer_id:
+            cust_res = supabase.table("customers").select("id").eq("email", customer_id).execute()
+            cust_data = getattr(cust_res, "data", None)
+            if isinstance(cust_data, list) and len(cust_data) > 0 and isinstance(cust_data[0], dict):
+                real_id = cust_data[0].get("id")
+                if real_id:
+                    res2 = supabase.table("orders").select("*").eq("customer_id", real_id).order("total", desc=True).execute()
+                    orders_list = getattr(res2, "data", []) or []
+
         return {"status": "success", "orders": orders_list}
     except Exception as e:
         print(f"Fetch user orders error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+    
 @router.post("/verify-receipt")
 async def verify_receipt(payload: VerifyReceiptRequest):
     order_ref = payload.order_reference.strip()
