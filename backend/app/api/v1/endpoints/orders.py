@@ -85,38 +85,21 @@ async def process_checkout(request: Request, payload: CheckoutRequest):
         print(f"Checkout exception: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/status/{order_ref}")
-async def get_order_status(order_ref: str):
+@router.get("/user/{identifier}")
+async def get_user_orders(identifier: str):
     try:
-        res = supabase.table("orders").select("status, receipt_number").eq("order_reference", order_ref).execute()
-        data = res.data if hasattr(res, "data") else []
-        if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
-            record = data[0]
-            return {
-                "status": record.get("status", "Pending PIN"),
-                "receipt_number": record.get("receipt_number", "")
-            }
-    except Exception as e:
-        print(f"Status check error: {e}")
-    return {"status": "Pending PIN", "receipt_number": ""}
+        target_uuid = identifier
+        # If the identifier is an email, look up the correct customer UUID first
+        if "@" in identifier:
+            cust_res = supabase.table("customers").select("id").eq("email", identifier).execute()
+            cust_data = getattr(cust_res, "data", None) or []
+            if cust_data and isinstance(cust_data, list):
+                target_uuid = cust_data[0].get("id")
+            else:
+                return {"status": "success", "orders": []}
 
-@router.get("/user/{customer_id}")
-async def get_user_orders(customer_id: str):
-    try:
-        # Try fetching by exact customer_id UUID first
-        res = supabase.table("orders").select("*").eq("customer_id", customer_id).order("total", desc=True).execute()
+        res = supabase.table("orders").select("*").eq("customer_id", target_uuid).order("total", desc=True).execute()
         orders_list = res.data if hasattr(res, "data") else []
-
-        # Fallback: if none found by UUID, try matching by phone or customer reference if customer_id looks like an email or phone
-        if not orders_list and "@" in customer_id:
-            cust_res = supabase.table("customers").select("id").eq("email", customer_id).execute()
-            cust_data = getattr(cust_res, "data", None)
-            if isinstance(cust_data, list) and len(cust_data) > 0 and isinstance(cust_data[0], dict):
-                real_id = cust_data[0].get("id")
-                if real_id:
-                    res2 = supabase.table("orders").select("*").eq("customer_id", real_id).order("total", desc=True).execute()
-                    orders_list = getattr(res2, "data", []) or []
-
         return {"status": "success", "orders": orders_list}
     except Exception as e:
         print(f"Fetch user orders error: {e}")
