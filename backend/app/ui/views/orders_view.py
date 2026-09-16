@@ -225,8 +225,8 @@ def build_orders_view(page: ft.Page):
         has_changes = False
         fetch_backend_orders()
         for ord in my_orders:
-            if ord.get("status") in ["Pending", "Pending PIN"]:
-                order_ref = ord.get("order_reference") or ord.get("order_id")
+            order_ref = ord.get("order_reference") or ord.get("order_id")
+            if order_ref:
                 try:
                     res = httpx.get(f"{API_BASE_URL}/orders/status/{order_ref}", timeout=4)
                     if res.status_code == 200:
