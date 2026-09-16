@@ -49,10 +49,27 @@ def login_user(payload: AuthPayload):
         if res.session is None:
             raise HTTPException(status_code=401, detail="Login failed: no active session returned.")
 
+        # res may be an object or dict depending on client; normalize
+        session = getattr(res, "session", None) or (res.get("session") if isinstance(res, dict) else None)
+        user_obj = getattr(res, "user", None) or (res.get("user") if isinstance(res, dict) else None)
+
+        if session is None:
+            raise HTTPException(status_code=401, detail="Login failed: no active session returned.")
+
+        user_id = None
+        user_email = None
+        if user_obj:
+            user_id = user_obj.id if hasattr(user_obj, "id") else user_obj.get("id")
+            user_email = user_obj.email if hasattr(user_obj, "email") else user_obj.get("email")
+
         return {
+            "status": "success",
             "message": "Login successful",
-            "access_token": res.session.access_token,
-            "user": res.user
+            "user": {
+                "id": str(user_id) if user_id is not None else None,
+                "user_id": str(user_id) if user_id is not None else None,
+                "email": user_email
+            }
         }
     except HTTPException:
         raise
