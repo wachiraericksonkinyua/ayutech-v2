@@ -121,11 +121,12 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback)
         global current_logged_in_user
         import app.ui.state as app_state
         
+        # Safely capture user ID and email from dictionary or object response
         if isinstance(user_data, dict):
-            app_state.current_user_id = user_data.get("id", "")
+            app_state.current_user_id = str(user_data.get("id") or user_data.get("user_id", ""))
             app_state.user_info["email"] = user_data.get("email", "")
         else:
-            app_state.current_user_id = getattr(user_data, "id", "")
+            app_state.current_user_id = str(getattr(user_data, "id", "") or getattr(user_data, "user_id", ""))
             app_state.user_info["email"] = getattr(user_data, "email", "")
 
         email = app_state.user_info["email"]
@@ -133,7 +134,11 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback)
         try:
             res = httpx.get(f"{API_BASE_URL}/auth/profile", params={"email": email}, timeout=5)
             if res.status_code == 200:
-                current_logged_in_user = res.json()
+                profile_json = res.json()
+                current_logged_in_user = profile_json
+                # Ensure user ID is synced from profile query if available
+                if isinstance(profile_json, dict) and profile_json.get("id"):
+                    app_state.current_user_id = str(profile_json.get("id"))
             else:
                 current_logged_in_user = {"email": email}
         except Exception:
@@ -143,6 +148,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback)
         page.snack_bar.open = True
         switch_tab_callback(4)
 
+        
     if not current_logged_in_user:
         return build_auth_view(page, handle_login_success)
 
