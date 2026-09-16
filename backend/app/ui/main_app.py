@@ -72,22 +72,64 @@ def main(page: ft.Page):
     # Show loading container immediately on startup
     content_area.content = build_loading_container()
 
-    def fetch_products():
-        start_time = time.time()
-        try:
-            res = httpx.get(f"{API_BASE_URL}/admin/products", timeout=8)
-            if res.status_code == 200 and len(res.json()) > 0:
-                all_products.clear()
-                all_products.extend(res.json())
-        except Exception as err:
-            print(f"Backend offline: {err}")
+    # def fetch_products():
+    #     start_time = time.time()
+    #     try:
+    #         res = httpx.get(f"{API_BASE_URL}/admin/products", timeout=8)
+    #         if res.status_code == 200 and len(res.json()) > 0:
+    #             all_products.clear()
+    #             all_products.extend(res.json())
+    #     except Exception as err:
+    #         print(f"Backend offline: {err}")
         
-        # Keep splash screen visible for at least 2.5 seconds to cache remote GitHub images
-        elapsed = time.time() - start_time
-        if elapsed < 2.5:
-            time.sleep(2.5 - elapsed)
+    #     # Keep splash screen visible for at least 2.5 seconds to cache remote GitHub images
+    #     elapsed = time.time() - start_time
+    #     if elapsed < 2.5:
+    #         time.sleep(2.5 - elapsed)
             
-        switch_tab(0)
+    #     switch_tab(0)
+    def fetch_products():
+      start_time = time.time()
+      try:
+        # Switch to public /products/ endpoint
+        res = httpx.get(f'{API_BASE_URL}/products', timeout=6)
+        if res.status_code == 200 and len(res.json()) > 0:
+          all_products.clear()
+          all_products.extend(res.json())
+      except Exception as err:
+        print(f'Backend products fetch error: {err}')
+
+      # Fallback default items so the shop is never blank
+      if not all_products:
+        all_products.extend([
+            {
+                'id': 'fallback-1',
+                'name': 'Toyota 1KD Engine Air Cleaner Element',
+                'price': 2500,
+                'category': 'Service Parts',
+                'image_url': 'https://raw.githubusercontent.com/wachiraericksonkinyua/ayutech/main/images/products/brakeparts/drum7l.png',
+            },
+            {
+                'id': 'fallback-2',
+                'name': 'Mazda Demio Front Shock Absorbers',
+                'price': 6500,
+                'category': 'Suspension Parts',
+                'image_url': 'https://raw.githubusercontent.com/wachiraericksonkinyua/ayutech/main/images/products/brakeparts/drum7l.png',
+            },
+            {
+                'id': 'fallback-3',
+                'name': 'Heavy Duty Brake Pads Set',
+                'price': 4200,
+                'category': 'Brake Parts',
+                'image_url': 'https://raw.githubusercontent.com/wachiraericksonkinyua/ayutech/main/images/products/brakeparts/drum7l.png',
+            },
+        ])
+
+      elapsed = time.time() - start_time
+      if elapsed < 2.0:
+        time.sleep(2.0 - elapsed)
+
+      switch_tab(0)
 
     def update_cart(p, qty=1):
         p_id = str(p.get("id"))
