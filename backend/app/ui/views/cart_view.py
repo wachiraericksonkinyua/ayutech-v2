@@ -233,6 +233,8 @@ def build_cart_view(page: ft.Page, change_qty_callback):
             for i in cart.values()
         ]
 
+        active_customer_id = current_user_id if current_user_id else None
+
         order_payload = {
             "phone": formatted_phone if selected_payment == "mpesa" else "Cash Customer",
             "fulfillment": "Rider / Courier Delivery" if fulfillment_type == "delivery" else "Shop Pickup",
@@ -240,9 +242,9 @@ def build_cart_view(page: ft.Page, change_qty_callback):
             "payment_method": "M-Pesa STK Push" if selected_payment == "mpesa" else "Cash on Pickup",
             "items": items_payload,
             "total": float(final_total),
-            "customer_id": current_user_id or None  # Links order to the logged-in user profile
+            "customer_id": active_customer_id  # Safely passes the active user UUID
         }
-
+        
         try:
             res = httpx.post(f"{API_BASE_URL}/orders/checkout", json=order_payload, timeout=10)
             if res.status_code in [200, 201]:
