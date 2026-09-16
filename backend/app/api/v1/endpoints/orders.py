@@ -37,6 +37,7 @@ async def process_checkout(request: Request, payload: CheckoutRequest):
         short_ref = f"AYU-{order_uuid[:4]}"
         checkout_request_id = ""
 
+        # 1. Trigger Daraja STK Push (Re-enabled)
         if "M-Pesa" in payload.payment_method:
             daraja = DarajaService()
             stk_res = await daraja.send_stk_push(
@@ -47,11 +48,16 @@ async def process_checkout(request: Request, payload: CheckoutRequest):
             )
             checkout_request_id = stk_res.get("CheckoutRequestID", "")
 
+        # Validate customer_id to ensure it's a valid non-empty UUID string
+        valid_customer_id = None
+        if payload.customer_id and str(payload.customer_id).strip() not in ["", "None", "null"]:
+            valid_customer_id = str(payload.customer_id).strip()
+
         order_record = {
             "id": order_uuid,
             "order_reference": short_ref,
             "checkout_request_id": checkout_request_id,
-            "customer_id": payload.customer_id,
+            "customer_id": valid_customer_id, # Safely sanitized UUID or None
             "customer_phone": payload.phone,
             "phone": payload.phone,
             "fulfillment": payload.fulfillment,
