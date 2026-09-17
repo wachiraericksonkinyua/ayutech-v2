@@ -4,7 +4,8 @@ import uuid
 import flet as ft
 import httpx
 from app.ui.state import API_BASE_URL, cart, current_user_id, my_orders, user_info, wishlist
-from app.ui.notifications import show_top_notification
+from app.ui.notifications import notify, show_top_notification
+from app.ui import theme as theme_mod
 import app.ui.state as app_state
 
 current_logged_in_user = None
@@ -83,7 +84,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
     user_info['email'] = email
     current_logged_in_user = {'id': user_id, 'email': email}
 
-    show_top_notification(page, '✅ Signed in successfully!', '#16A34A')
+    notify(page, 'Signed in successfully!', '#16A34A', title='Welcome Back')
     switch_tab_callback(4)
 
   def handle_submit(e):
@@ -141,7 +142,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
     my_orders.clear()
     cart.clear()
     wishlist.clear()
-    show_top_notification(page, '🔒 Signed out.', '#DC2626')
+    notify(page, 'Signed out. See you soon!', '#DC2626', title='Signed Out')
     switch_tab_callback(4)
 
   # --- GUEST VIEW (PROMPT TO LOGIN) ---
@@ -216,19 +217,6 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
         'banner_url': '',
     }
 
-    # Load existing profile from backend (best effort)
-    try:
-      if uid:
-        pr = httpx.get(f'{API_BASE_URL}/auth/profile/{uid}', timeout=8)
-        if pr.status_code == 200:
-          data = pr.json()
-          if isinstance(data, dict):
-            for k in profile_data.keys():
-              if data.get(k):
-                profile_data[k] = str(data[k])
-    except Exception as e:
-      print(f'Profile load error: {e}')
-
     avatar_preview = ft.Container(
         width=72,
         height=72,
@@ -269,12 +257,57 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
             alignment=ft.alignment.center,
             content=ft.Image(src=profile_data['avatar_url'], fit=ft.ImageFit.COVER, width=72, height=72)
         )
+      else:
+        avatar_preview.content = ft.Container(
+            expand=True, border_radius=36, bgcolor='#DC2626', clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            alignment=ft.alignment.center,
+            content=ft.Text(
+                (profile_data['username'] or profile_data['full_name'] or logged_in_email)[:2].upper(),
+                size=20, weight=ft.FontWeight.BOLD, color='white',
+            ),
+        )
       if profile_data.get('banner_url'):
         banner_preview.content = ft.Container(
             expand=True, bgcolor='#121212', clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
             content=ft.Image(src=profile_data['banner_url'], fit=ft.ImageFit.COVER, width=360, height=130)
         )
-      page.update()
+      try:
+        username_field.value = profile_data.get('username', '')
+        fullname_field.value = profile_data.get('full_name', '')
+        phone_field.value = profile_data.get('phone', '')
+        page.update()
+      except Exception:
+        pass
+
+    def load_profile_async():
+      import threading
+
+      def _load():
+        try:
+          if uid:
+            pr = httpx.get(f'{API_BASE_URL}/auth/profile/{uid}', timeout=8)
+            if pr.status_code == 200:
+              data = pr.json()
+              if isinstance(data, dict):
+                for k in profile_data.keys():
+                  if data.get(k):
+                    profile_data[k] = str(data[k])
+                refresh_image_previews()
+        except Exception as e:
+          print(f'Profile load error: {e}')
+
+      threading.Thread(target=_load, daemon=True).start()
+
+    def change_theme(e):
+      theme_mod.apply_theme(page, theme_drop.value or 'system')
+      notify(page, f'Theme set to {theme_drop.value.title()}', '#16A34A', ft.icons.BRIGHTNESS_6_OUTLINED, title='Appearance')
+
+    theme_drop = ft.Dropdown(
+        label='App Theme', value=app_state.theme_mode, border_color='#E5E7EB',
+        text_size=13, bgcolor='white', on_change=change_theme,
+        options=[ft.dropdown.Option(m) for m in ['system', 'light', 'dark']],
+        hint_text='Follow my PC / Phone',
+    )
 
     pending_upload = {'type': 'avatar'}
 
@@ -295,14 +328,20 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
           url = res.json().get('image_url', '')
           if pending_upload['type'] == 'avatar':
             profile_data['avatar_url'] = url
+            notify(page, 'Profile photo updated!', '#16A34A', ft.icons.PERSON, title='Profile Photo')
           else:
             profile_data['banner_url'] = url
+            notify(page, 'Banner updated!', '#16A34A', ft.icons.PHOTO_OUTLINED, title='Banner Photo')
           refresh_image_previews()
-          show_top_notification(page, '🖼️ Photo uploaded!', '#16A34A')
         else:
-          show_top_notification(page, '⚠️ Upload failed. Try again.', '#DC2626')
+          detail = 'Upload failed. Make sure the profile-images bucket exists.'
+          try:
+            detail = res.json().get('detail', detail)
+          except Exception:
+            pass
+          notify(page, detail, '#DC2626', ft.icons.ERROR_OUTLINE, title='Upload Failed')
       except Exception as err:
-        show_top_notification(page, f'Upload error: {err}', '#DC2626')
+        notify(page, f'Upload error: {err}', '#DC2626', ft.icons.ERROR_OUTLINE, title='Upload Failed')
 
     file_picker = ft.FilePicker(on_result=upload_selected)
     existing_picker = _SHARED_FILE_PICKER[0]
@@ -356,13 +395,14 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
             user_info['name'] = payload['full_name']
           if payload.get('phone'):
             user_info['phone'] = payload['phone']
-          show_top_notification(page, '💾 Profile saved!', '#16A34A', ft.icons.SAVE_OUTLINED)
+          notify(page, 'Profile saved!', '#16A34A', ft.icons.SAVE_OUTLINED, title='Profile Saved')
         else:
-          show_top_notification(page, res.json().get('detail', 'Failed to save profile.'), '#DC2626')
+          detail = res.json().get('detail', 'Failed to save profile.') if res.content else 'Failed to save profile.'
+          notify(page, detail, '#DC2626', ft.icons.ERROR_OUTLINE, title='Save Failed')
       except Exception as err:
-        show_top_notification(page, f'Save error: {err}', '#DC2626')
+        notify(page, f'Save error: {err}', '#DC2626', ft.icons.ERROR_OUTLINE, title='Save Failed')
 
-    refresh_image_previews()
+    load_profile_async()
 
     return ft.Container(
         padding=0,
@@ -423,6 +463,8 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                     birthdate_field,
                     phone_field,
                     gender_drop,
+                    ft.Divider(color='#E5E7EB', height=16),
+                    theme_drop,
                     ft.Container(height=6),
                     ft.ElevatedButton(
                         'Save Changes', width=380, height=45, bgcolor='#DC2626', color='white',
@@ -587,7 +629,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                   ),
                   ft.Text(logged_in_email, size=11, color='#9CA3AF'),
               ], spacing=2),
-          ], spacing=14),
+          ], spacing=14, on_click=lambda e: open_settings()),
       ], spacing=10),
   )
 

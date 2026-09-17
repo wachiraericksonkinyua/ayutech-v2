@@ -1,8 +1,99 @@
 import flet as ft
-from app.ui.state import all_products, wishlist
+from app.ui.state import all_products, wishlist, notifications as app_notifications
 
 def build_home_view(page: ft.Page, update_cart_callback, update_wishlist_callback, open_detail_callback, switch_tab_callback):
     container = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=15)
+
+    def open_notifications(e):
+        def build_rows():
+            rows = []
+            if not app_notifications:
+                rows.append(
+                    ft.Container(
+                        alignment=ft.alignment.center, padding=ft.padding.all(30),
+                        content=ft.Column([
+                            ft.Icon(ft.icons.NOTIFICATIONS_NONE, size=46, color="#9CA3AF"),
+                            ft.Text("No notifications yet", size=14, weight=ft.FontWeight.BOLD, color="#6B7280"),
+                            ft.Text("Add-to-cart, orders and updates will show here.", size=11, color="#9CA3AF", text_align=ft.TextAlign.CENTER),
+                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6),
+                    )
+                )
+            else:
+                for n in app_notifications[:20]:
+                    rows.append(
+                        ft.Container(
+                            bgcolor="#F9FAFB", border_radius=10, padding=ft.padding.all(10),
+                            border=ft.border.all(1, "#EEF0F3"),
+                            content=ft.Row([
+                                ft.Container(
+                                    width=34, height=34, bgcolor="#FEE2E2", border_radius=17,
+                                    alignment=ft.alignment.center,
+                                    content=ft.Icon(n.get("icon") or ft.icons.CIRCLE, color="#DC2626", size=17),
+                                ),
+                                ft.Column([
+                                    ft.Text(n.get("title", "AyuTech"), size=12, weight=ft.FontWeight.BOLD, color="#121212"),
+                                    ft.Text(n.get("message", ""), size=11, color="#6B7280", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                                ], spacing=2, expand=True),
+                                ft.Text(n.get("time", ""), size=10, color="#9CA3AF"),
+                            ], spacing=10),
+                        )
+                    )
+            return rows
+
+        def clear_all(e):
+            app_notifications.clear()
+            popup.content.content.controls[1].controls = build_rows()
+            popup.update()
+
+        popup = ft.AlertDialog(
+            modal=False,
+            bgcolor="#FFFFFF",
+            shape=ft.RoundedRectangleBorder(radius=20),
+            content=ft.Container(
+                width=360,
+                padding=ft.padding.all(15),
+                content=ft.Column([
+                    ft.Row([
+                        ft.Text("Notifications", size=16, weight=ft.FontWeight.BOLD, color="#121212"),
+                        ft.Container(width=8),
+                        ft.Container(
+                            bgcolor="#DC2626", border_radius=10,
+                            padding=ft.padding.symmetric(horizontal=8, vertical=2),
+                            content=ft.Text(str(len(app_notifications)), size=11, color="white", weight=ft.FontWeight.BOLD),
+                        ),
+                        ft.Container(expand=True),
+                        ft.TextButton(
+                            "Clear All", icon=ft.icons.DELETE_SWEEP,
+                            style=ft.ButtonStyle(color="#DC2626"),
+                            on_click=clear_all,
+                        ),
+                    ]),
+                    ft.Container(height=4),
+                    ft.Column(build_rows(), spacing=8, tight=True, scroll=ft.ScrollMode.AUTO),
+                ], spacing=4, tight=True),
+            ),
+            actions=[ft.TextButton("Close")],
+        )
+        popup.actions[0].on_click = lambda e: (setattr(popup, "open", False), page.update())
+        page.dialog = popup
+        popup.open = True
+        page.update()
+
+    def notification_bell():
+        badge = None
+        if app_notifications:
+            badge = ft.Container(
+                bgcolor="#DC2626", border_radius=9,
+                padding=ft.padding.symmetric(horizontal=6, vertical=1),
+                content=ft.Text(str(len(app_notifications)), size=10, color="white", weight=ft.FontWeight.BOLD),
+            )
+        return ft.Stack([
+            ft.IconButton(
+                ft.icons.NOTIFICATIONS_OUTLINED, icon_color="#121212", bgcolor="#F3F4F6",
+                on_click=open_notifications, tooltip="Notifications",
+            ),
+            ft.Container(badge, top=-2, right=-2) if badge else ft.Container(),
+        ])
 
     # Location Header Bar matching image
     location_header = ft.Container(
@@ -16,7 +107,7 @@ def build_home_view(page: ft.Page, update_cart_callback, update_wishlist_callbac
                     ft.Icon(ft.icons.KEYBOARD_ARROW_DOWN, size=14, color="#121212")
                 ])
             ]),
-            ft.IconButton(ft.icons.NOTIFICATIONS_OUTLINED, icon_color="#121212", bgcolor="#F3F4F6")
+            notification_bell()
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
     )
 

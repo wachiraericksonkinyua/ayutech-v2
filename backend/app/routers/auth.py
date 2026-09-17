@@ -108,12 +108,24 @@ async def upload_profile_image(
         folder = "avatars" if type == "avatar" else "banners"
         file_path = f"{folder}/{unique_filename}"
 
-        supabase.storage.from_("profile-images").upload(
-            path=file_path,
-            file=contents,
-            file_options={"content-type": image.content_type or "image/jpeg"}
-        )
-        image_url = supabase.storage.from_("profile-images").get_public_url(file_path)
+        def _try_upload(bucket: str):
+            supabase.storage.from_(bucket).upload(
+                path=file_path,
+                file=contents,
+                file_options={"content-type": image.content_type or "image/jpeg"}
+            )
+            return supabase.storage.from_(bucket).get_public_url(file_path)
+
+        try:
+            image_url = _try_upload("profile-images")
+        except Exception:
+            # Bucket may not exist yet - try to create it automatically (service role)
+            try:
+                supabase.storage.create_bucket("profile-images", options={"public": True})
+                image_url = _try_upload("profile-images")
+            except Exception:
+                # Last resort: reuse the existing product-images bucket so uploads still work
+                image_url = _try_upload("product-images")
         return {"image_url": image_url, "type": type}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")

@@ -6,7 +6,7 @@ import time
 import flet as ft
 import httpx
 from app.ui.state import API_BASE_URL, current_user_id, my_orders
-from app.ui.notifications import show_top_notification
+from app.ui.notifications import notify
 
 
 def build_orders_view(page: ft.Page):
@@ -50,12 +50,12 @@ def build_orders_view(page: ft.Page):
         )
         data = res.json()
         if res.status_code == 200:
-          show_top_notification(page, '✅ Order successfully verified!', '#16A34A')
+          notify(page, 'Order successfully verified!', '#16A34A', title='Payment Verified')
           close_dialog(receipt_dialog)
           sync_orders_status()
           render_orders()
         else:
-          show_top_notification(page, data.get('detail', 'Invalid receipt code.'), '#DC2626')
+          notify(page, data.get('detail', 'Invalid receipt code.'), '#DC2626', title='Verification Failed')
         page.update()
       except Exception as err:
         print(f'Manual code entry error: {err}')
@@ -292,9 +292,10 @@ def build_orders_view(page: ft.Page):
             if new_receipt:
               ord['receipt_number'] = new_receipt
 
-        show_top_notification(
+        notify(
             page, f'Status checked: {new_status}',
             '#25D366' if new_status in ['Paid', 'Processing'] else '#DC2626',
+            title='Order Status',
         )
         render_orders()
         page.update()
@@ -303,7 +304,7 @@ def build_orders_view(page: ft.Page):
           detail = res.json().get('detail', f'Status lookup failed ({res.status_code}).')
         except Exception:
           detail = f'Status lookup failed ({res.status_code}).'
-        show_top_notification(page, f'⚠️ {detail}', '#DC2626')
+        notify(page, detail, '#DC2626', title='Status Check Failed')
         page.update()
     except Exception as err:
       print(f'Manual verification error: {err}')

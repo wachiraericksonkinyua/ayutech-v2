@@ -5,7 +5,8 @@ import httpx
 import time
 from typing import cast
 from app.ui.state import all_products, cart, wishlist, API_BASE_URL
-from app.ui.notifications import show_top_notification
+from app.ui.notifications import notify
+from app.ui import theme as theme_mod
 from app.ui.views.home_view import build_home_view
 from app.ui.views.browse_view import build_browse_view
 from app.ui.views.cart_view import build_cart_view
@@ -48,7 +49,7 @@ def build_loading_container():
     )
 def main(page: ft.Page):
     page.title = "AyuTech Motors Limited"
-    page.theme_mode = ft.ThemeMode.LIGHT
+    page.theme_mode = ft.ThemeMode.SYSTEM
     page.padding = 0
     page.bgcolor = "#FFFFFF"
 
@@ -68,6 +69,16 @@ def main(page: ft.Page):
         page.window_resizable = True
 
     content_area = ft.Container(expand=True, bgcolor="#FFFFFF")
+
+    def theme_surface(mode):
+        dark = mode == "dark" or page.theme_mode == ft.ThemeMode.DARK
+        content_area.bgcolor = "#121212" if dark else "#FFFFFF"
+        try:
+            content_area.update()
+        except Exception:
+            pass
+    theme_mod.set_theme_listener(theme_surface)
+    theme_mod.load_theme(page)
     conversation_history = []
 
     # Show loading container immediately on startup
@@ -147,7 +158,7 @@ def main(page: ft.Page):
                 "image": p.get("image_url", "")
             }
         if qty > 0:
-            show_top_notification(page, f"Added to cart: {p.get('name', 'Item')}", "#16A34A", ft.icons.ADD_SHOPPING_CART)
+            notify(page, f"Added to cart: {p.get('name', 'Item')}", "#16A34A", ft.icons.ADD_SHOPPING_CART, title="Added to Cart")
         page.update()
 
     def update_wishlist(p):
@@ -372,7 +383,7 @@ def main(page: ft.Page):
         is_logged_in = profile_mod.current_logged_in_user is not None or bool(current_user_id)
 
         if idx in [2, 3] and not is_logged_in:
-            show_top_notification(page, "🔒 Please sign in or create an account to view cart and orders.", "#DC2626", ft.icons.LOCK)
+            notify(page, "Please sign in or create an account to view cart and orders.", "#DC2626", ft.icons.LOCK, title="Access Locked")
             # Force redirect to Hub / Profile tab
             idx = 4
 

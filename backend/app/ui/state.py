@@ -17,6 +17,10 @@ current_user_id = ""  # Added to track active Supabase session UUID
 user_info = {"email": ""}
 active_search_query = ""
 
+# Notification center + theme preference
+notifications = []
+theme_mode = "system"  # "system" | "light" | "dark"
+
 # all_products = [
 #     {"id": "1", "name": "5-Speed Gearbox Assembly", "price": 65000, "category": "Gear Parts", "image_url": ""},
 #     {"id": "2", "name": "Air Cleaner Housing 1KD Diesel", "price": 4500, "category": "Engine Parts", "image_url": ""},
