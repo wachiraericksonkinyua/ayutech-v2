@@ -119,7 +119,11 @@ jobs:
 
   windows:
     name: Windows desktop
-    runs-on: windows-latest
+    # Flutter 3.19's Visual Studio detection fails on the newest Windows
+    # runner image; windows-2022 is the last image it detects correctly.
+    runs-on: windows-2022
+    # Never let a Windows-only failure block the APK/Linux release.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
