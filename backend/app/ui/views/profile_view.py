@@ -703,32 +703,34 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                   ),
               ], spacing=0),
           ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-          ft.Row([
-              ft.Container(
-                  width=56,
-                  height=56,
-                  border_radius=28,
-                  bgcolor='#DC2626',
-                  alignment=ft.alignment.center,
-                  border=ft.border.all(2, 'white'),
-                  on_click=lambda e: open_settings(),
-                  content=ft.Text(
-                      logged_in_email[:2].upper(),
-                      size=18,
-                      weight=ft.FontWeight.BOLD,
-                      color='white',
+          ft.GestureDetector(
+              on_tap=lambda e: open_settings(),
+              content=ft.Row([
+                  ft.Container(
+                      width=56,
+                      height=56,
+                      border_radius=28,
+                      bgcolor='#DC2626',
+                      alignment=ft.alignment.center,
+                      border=ft.border.all(2, 'white'),
+                      content=ft.Text(
+                          logged_in_email[:2].upper(),
+                          size=18,
+                          weight=ft.FontWeight.BOLD,
+                          color='white',
+                      ),
                   ),
-              ),
-              ft.Column([
-                  ft.Text(
-                      logged_in_email.split('@')[0].capitalize(),
-                      size=16,
-                      weight=ft.FontWeight.BOLD,
-                      color='white',
-                  ),
-                  ft.Text(logged_in_email, size=11, color=C.muted()),
-              ], spacing=2),
-          ], spacing=14, on_click=lambda e: open_settings()),
+                  ft.Column([
+                      ft.Text(
+                          logged_in_email.split('@')[0].capitalize(),
+                          size=16,
+                          weight=ft.FontWeight.BOLD,
+                          color='white',
+                      ),
+                      ft.Text(logged_in_email, size=11, color=C.muted()),
+                  ], spacing=2),
+              ], spacing=14),
+          ),
       ], spacing=10),
   )
 
