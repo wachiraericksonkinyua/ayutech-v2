@@ -98,7 +98,7 @@ def build_track_page(page: ft.Page, back_callback):
     def do_track(e):
         phone = "".join(ch for ch in (phone_field.value or "") if ch.isdigit())
         if len(phone) < 9:
-            notify(page, "Enter a valid phone number (e.g. 0712345678).", "#DC2626", ft.icons.ERROR_OUTLINE, title="Invalid Phone")
+            notify(page, "Enter a valid phone number (e.g. 0712345678).", C.accent(), ft.icons.ERROR_OUTLINE, title="Invalid Phone")
             return
         result_col.controls.clear()
         spinner.visible = True
@@ -113,12 +113,12 @@ def build_track_page(page: ft.Page, back_callback):
                     rd = res.json().get("detail", f"Failed ({res.status_code}).")
                 except Exception:
                     rd = f"Failed ({res.status_code})."
-                notify(page, rd, "#DC2626", ft.icons.ERROR_OUTLINE, title="Tracking Failed")
+                notify(page, rd, C.accent(), ft.icons.ERROR_OUTLINE, title="Tracking Failed")
             spinner.visible = False
             _render_orders(orders)
         except Exception as err:
             spinner.visible = False
-            notify(page, f"Connection error: {err}", "#DC2626", ft.icons.ERROR_OUTLINE, title="Tracking Failed")
+            notify(page, f"Connection error: {err}", C.accent(), ft.icons.ERROR_OUTLINE, title="Tracking Failed")
             page.update()
 
     track_btn = ft.ElevatedButton(

@@ -16,11 +16,51 @@ current_logged_in_user = None
 # Single shared FilePicker reused across settings-page rebuilds
 _SHARED_FILE_PICKER = [None]
 
-# Sub-page mode for the Hub tab: "" renders the dashboard, "settings" and "wishlist" render full pages
+# Sub-page mode for the Hub tab. "" renders the dashboard; other values render
+# dedicated full pages: settings, wishlist, track, forgot, reset, onboarding.
 profile_page_mode = ""
+
+# Opaque token handed back by the backend reset callback (kept out of the URL
+# once captured) and the email awaiting a reset link.
+pending_reset_token = ""
+pending_reset_email = ""
 
 # Shared profile info so the Hub header reflects saved avatar/name immediately
 hub_profile = {'username': 'Customer', 'full_name': '', 'phone': '', 'avatar_url': ''}
+
+
+def apply_login(user_data, page=None):
+    """Set the global signed-in user from an auth response payload."""
+    global current_logged_in_user
+    user_dict = user_data if isinstance(user_data, dict) else {}
+    email = user_dict.get('email') or getattr(user_data, 'email', '') or ''
+    user_id = str(
+        user_dict.get('id')
+        or user_dict.get('user_id')
+        or getattr(user_data, 'id', '')
+        or ''
+    )
+    app_state.current_user_id = user_id
+    user_info['email'] = email
+    current_logged_in_user = {'id': user_id, 'email': email}
+    return current_logged_in_user
+
+
+def is_profile_incomplete(user_id) -> bool:
+    """True when phone/date-of-birth are still missing (first-time sign-up)."""
+    if not user_id:
+        return False
+    try:
+        res = api_client.get(f'/auth/profile/{user_id}')
+        if res.status_code != 200:
+            return False
+        data = res.json()
+        if not isinstance(data, dict):
+            return False
+        return not (str(data.get('phone') or '').strip()
+                    or str(data.get('birth_date') or '').strip())
+    except Exception:
+        return False
 
 
 def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback, open_detail_callback=None):
@@ -35,8 +75,8 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
   email_field = ft.TextField(
       label='Email Address',
       hint_text='you@example.com',
-      border_color='#DC2626',
-      focused_border_color='#DC2626',
+      border_color=C.accent(),
+      focused_border_color=C.accent(),
       bgcolor=C.field(),
       height=45,
       text_size=13,
@@ -45,8 +85,8 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
   password_field = ft.TextField(
       label='Password',
       hint_text='Your secure password',
-      border_color='#DC2626',
-      focused_border_color='#DC2626',
+      border_color=C.accent(),
+      focused_border_color=C.accent(),
       bgcolor=C.field(),
       height=45,
       text_size=13,
@@ -67,7 +107,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
   )
   action_btn = ft.ElevatedButton(
       'Sign In',
-      bgcolor='#DC2626',
+      bgcolor=C.accent(),
       color='white',
       height=45,
       style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
@@ -76,21 +116,19 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
       'New here? Create an account', style=ft.ButtonStyle(color=C.text())
   )
 
-  def handle_login_success(user_data):
-    global current_logged_in_user
-    user_dict = user_data if isinstance(user_data, dict) else {}
-    email = user_dict.get('email') or getattr(user_data, 'email', '')
-    user_id = str(
-        user_dict.get('id')
-        or user_dict.get('user_id')
-        or getattr(user_data, 'id', '')
-    )
+  def handle_login_success(user_data, check_onboarding=True):
+    global profile_page_mode
+    logged = apply_login(user_data, page)
+    email = logged['email']
 
-    app_state.current_user_id = user_id
-    user_info['email'] = email
-    current_logged_in_user = {'id': user_id, 'email': email}
-
-    notify(page, 'Signed in successfully!', '#16A34A', title='Welcome Back')
+    # First-time sign-ups (e.g. Google) have no phone / date of birth yet:
+    # send them straight to the profile enrichment step.
+    if check_onboarding and is_profile_incomplete(logged['id']):
+      profile_page_mode = 'onboarding'
+      notify(page, 'Almost there! Add a few details to finish your profile.', '#2563EB', ft.icons.BADGE_OUTLINED, title='Welcome to AyuTech')
+    else:
+      profile_page_mode = ''
+      notify(page, 'Signed in successfully!', '#16A34A', title='Welcome Back')
     switch_tab_callback(4)
 
   def handle_submit(e):
@@ -98,7 +136,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
     password = (password_field.value or '').strip()
 
     if not email or not password:
-      show_top_notification(page, '⚠️ Please enter email and password.', '#DC2626')
+      show_top_notification(page, '⚠️ Please enter email and password.', C.accent())
       return
 
     endpoint = 'register' if is_register_mode.current else 'login'
@@ -117,9 +155,9 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
           app_state.access_token = data.get('access_token', '') or ''
           handle_login_success(data.get('user'))
       else:
-        show_top_notification(page, data.get('detail', 'Authentication failed.'), '#DC2626')
+        show_top_notification(page, data.get('detail', 'Authentication failed.'), C.accent())
     except Exception as err:
-      show_top_notification(page, f'Connection error: {err}', '#DC2626')
+      show_top_notification(page, f'Connection error: {err}', C.accent())
 
   action_btn.on_click = handle_submit
 
@@ -150,7 +188,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
     my_orders.clear()
     cart.clear()
     wishlist.clear()
-    notify(page, 'Signed out. See you soon!', '#DC2626', title='Signed Out')
+    notify(page, 'Signed out. See you soon!', C.accent(), title='Signed Out')
     switch_tab_callback(4)
 
   # --- GUEST VIEW (PROMPT TO LOGIN) ---
@@ -164,55 +202,249 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
     profile_page_mode = 'track'
     switch_tab_callback(4)
 
-  def handle_forgot_password(e):
+  def open_forgot_page(e=None):
+    global profile_page_mode
+    profile_page_mode = 'forgot'
+    switch_tab_callback(4)
+
+  def open_reset_page(e=None):
+    global profile_page_mode
+    profile_page_mode = 'reset'
+    switch_tab_callback(4)
+
+  def back_to_login(e=None):
+    global profile_page_mode
+    profile_page_mode = ''
+    switch_tab_callback(4)
+
+  def build_forgot_page():
+    """Dedicated view: request a Supabase recovery email link."""
     reset_email = ft.TextField(
         label='Your account email',
         hint_text='you@example.com',
-        border_color=C.accent(),
+        border_color=C.input_border(),
         focused_border_color=C.accent(),
         bgcolor=C.field(),
+        color=C.text(),
         height=45,
         text_size=13,
         keyboard_type=ft.KeyboardType.EMAIL,
     )
+    status_text = ft.Text('', size=12, color=C.soft())
 
     def send_reset(ev):
       val = (reset_email.value or '').strip()
       if not val:
-        show_top_notification(page, '⚠️ Please enter your email.', '#DC2626')
+        show_top_notification(page, '⚠️ Please enter your email.', C.accent())
         return
+      status_text.value = 'Sending…'
+      status_text.color = C.soft()
+      page.update()
       try:
-        httpx.post(f'{API_BASE_URL}/auth/forgot-password', json={'email': val}, timeout=15)
-        dlg.open = False
-        page.update()
-        notify(page, 'If that email is registered, a reset link has been sent.', '#16A34A', title='Check your email')
+        httpx.post(
+            f'{API_BASE_URL}/auth/forgot-password',
+            json={'email': val},
+            timeout=20,
+        )
+        global pending_reset_email
+        pending_reset_email = val
+        status_text.value = 'If that email is registered, a reset link is on its way.'
+        status_text.color = C.success()
+        notify(page, 'Check your inbox for the secure reset link.', '#16A34A', ft.icons.MARK_EMAIL_READ, title='Email sent')
       except Exception as err:
-        show_top_notification(page, f'Error: {err}', '#DC2626')
+        status_text.value = f'Error: {err}'
+        status_text.color = C.danger()
+      page.update()
 
-    dlg = ft.AlertDialog(
-        title=ft.Text('Reset Password', weight=ft.FontWeight.BOLD, size=16),
+    return ft.Container(
+        padding=20,
+        bgcolor=C.bg(),
+        alignment=ft.alignment.center,
+        expand=True,
         content=ft.Column([
-            ft.Text('We will email you a link to set a new password.', size=12, color=C.soft()),
-            reset_email,
-        ], spacing=10, tight=True, width=280),
-        actions=[
-            ft.TextButton('Cancel', on_click=lambda ev: (setattr(dlg, 'open', False), page.update())),
-            ft.ElevatedButton('Send link', bgcolor=C.accent(), color='white', on_click=send_reset),
-        ],
+            ft.Container(
+                padding=22,
+                bgcolor=C.surface(),
+                border_radius=20,
+                border=ft.border.all(1, C.divider()),
+                width=360,
+                content=ft.Column([
+                    ft.Row([
+                        ft.IconButton(ft.icons.ARROW_BACK, icon_color=C.text(),
+                                      tooltip='Back to sign in', on_click=back_to_login),
+                        ft.Container(
+                            width=40, height=40, bgcolor=C.accent_soft(), border_radius=20,
+                            alignment=ft.alignment.center,
+                            content=ft.Icon(ft.icons.LOCK_RESET, color=C.accent(), size=20),
+                        ),
+                        ft.Text('Reset Password', size=17, weight=ft.FontWeight.BOLD, color=C.text()),
+                    ], spacing=8),
+                    ft.Text('Enter your email and we will send a secure link to choose a new password.',
+                            size=12, color=C.soft()),
+                    reset_email,
+                    ft.ElevatedButton(
+                        'Send reset link', width=316, height=45,
+                        bgcolor=C.accent(), color=C.on_accent(),
+                        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
+                        on_click=send_reset,
+                    ),
+                    status_text,
+                ], spacing=12),
+            )
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
     )
-    page.dialog = dlg
-    dlg.open = True
-    page.update()
+
+  def build_reset_page():
+    """Dedicated view: set a new password using a validated reset token."""
+    token = pending_reset_token
+    new_password = ft.TextField(
+        label='New password',
+        hint_text='At least 6 characters',
+        border_color=C.input_border(),
+        focused_border_color=C.accent(),
+        bgcolor=C.field(),
+        color=C.text(),
+        height=45,
+        text_size=13,
+        password=True,
+        can_reveal_password=True,
+    )
+    confirm_password = ft.TextField(
+        label='Confirm new password',
+        hint_text='Repeat the password',
+        border_color=C.input_border(),
+        focused_border_color=C.accent(),
+        bgcolor=C.field(),
+        color=C.text(),
+        height=45,
+        text_size=13,
+        password=True,
+        can_reveal_password=True,
+    )
+    status_text = ft.Text('', size=12, color=C.soft())
+
+    def save_new_password(ev):
+      pwd = (new_password.value or '').strip()
+      confirm = (confirm_password.value or '').strip()
+      if len(pwd) < 6:
+        status_text.value = 'Password must be at least 6 characters.'
+        status_text.color = C.danger()
+        page.update()
+        return
+      if pwd != confirm:
+        status_text.value = 'Passwords do not match.'
+        status_text.color = C.danger()
+        page.update()
+        return
+      status_text.value = 'Updating password…'
+      status_text.color = C.soft()
+      page.update()
+      try:
+        res = httpx.post(
+            f'{API_BASE_URL}/auth/reset-password',
+            json={'token': token, 'new_password': pwd},
+            timeout=20,
+        )
+        data = res.json() if res.content else {}
+        if res.status_code == 200:
+          global pending_reset_token
+          pending_reset_token = ''
+          notify(page, 'Password updated. Please sign in.', '#16A34A', ft.icons.CHECK_CIRCLE, title='Password reset')
+          back_to_login()
+        else:
+          status_text.value = data.get('detail', 'Could not update password.')
+          status_text.color = C.danger()
+          page.update()
+      except Exception as err:
+        status_text.value = f'Error: {err}'
+        status_text.color = C.danger()
+        page.update()
+
+    if not token:
+      return ft.Container(
+          padding=20, bgcolor=C.bg(), alignment=ft.alignment.center, expand=True,
+          content=ft.Column([
+              ft.Icon(ft.icons.LINK_OFF, size=48, color=C.muted()),
+              ft.Text('This reset link is invalid or has expired.', size=14, color=C.text()),
+              ft.ElevatedButton('Request a new link', bgcolor=C.accent(), color=C.on_accent(),
+                                on_click=open_forgot_page),
+          ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=12),
+      )
+
+    return ft.Container(
+        padding=20,
+        bgcolor=C.bg(),
+        alignment=ft.alignment.center,
+        expand=True,
+        content=ft.Column([
+            ft.Container(
+                padding=22,
+                bgcolor=C.surface(),
+                border_radius=20,
+                border=ft.border.all(1, C.divider()),
+                width=360,
+                content=ft.Column([
+                    ft.Row([
+                        ft.Container(
+                            width=40, height=40, bgcolor=C.accent_soft(), border_radius=20,
+                            alignment=ft.alignment.center,
+                            content=ft.Icon(ft.icons.PASSWORD, color=C.accent(), size=20),
+                        ),
+                        ft.Text('Choose a new password', size=17, weight=ft.FontWeight.BOLD, color=C.text()),
+                    ], spacing=8),
+                    ft.Text('Your reset link is verified. Set a strong new password below.',
+                            size=12, color=C.soft()),
+                    new_password,
+                    confirm_password,
+                    ft.ElevatedButton(
+                        'Save new password', width=316, height=45,
+                        bgcolor=C.accent(), color=C.on_accent(),
+                        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
+                        on_click=save_new_password,
+                    ),
+                    status_text,
+                ], spacing=12),
+            )
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+    )
 
   def handle_google_login(e):
     import threading
     import app.ui.oauth as oauth
 
+    is_web = bool(getattr(page, 'web', False))
+
+    # --- Web app: let the backend own the callback -------------------------
+    # Supabase redirects to /auth/oauth-callback, which exchanges the code and
+    # bounces the browser back into the app with a one-time login token that
+    # main_app consumes on startup. No localhost listener needed.
+    if is_web:
+      def _start_web():
+        try:
+          res = httpx.post(
+              f'{API_BASE_URL}/auth/oauth-url',
+              json={'provider': 'google'},
+              timeout=20,
+          )
+          data = res.json() if res.content else {}
+          url = data.get('url', '')
+          if not url:
+            show_top_notification(page, data.get('detail', 'Could not start Google sign-in.'), C.accent())
+            return
+          page.launch_url(url)
+        except Exception as err:
+          show_top_notification(page, f'Google sign-in error: {err}', C.accent())
+
+      show_top_notification(page, 'Redirecting to Google…', '#2563EB')
+      threading.Thread(target=_start_web, daemon=True).start()
+      return
+
+    # --- Desktop: capture the redirect with a one-shot local listener ------
     server = oauth.OAuthCallbackServer()
     try:
       server.start()
     except Exception as err:
-      show_top_notification(page, f'Could not start sign-in listener: {err}', '#DC2626')
+      show_top_notification(page, f'Could not start sign-in listener: {err}', C.accent())
       return
 
     def _run():
@@ -226,7 +458,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
         url = data.get('url', '')
         verifier = data.get('code_verifier', '')
         if not url:
-          show_top_notification(page, 'Could not start Google sign-in.', '#DC2626')
+          show_top_notification(page, 'Could not start Google sign-in.', C.accent())
           return
         try:
           page.launch_url(url)
@@ -234,7 +466,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
           pass
         params = server.wait(timeout=180)
         if not params or not params.get('code'):
-          show_top_notification(page, 'Google sign-in was cancelled or timed out.', '#DC2626')
+          show_top_notification(page, 'Google sign-in was cancelled or timed out.', C.accent())
           return
         code = params['code'][0]
         ex = httpx.post(
@@ -247,14 +479,21 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
           app_state.access_token = exd.get('access_token', '') or ''
           handle_login_success(exd.get('user'))
         else:
-          show_top_notification(page, exd.get('detail', 'Google sign-in failed.'), '#DC2626')
+          show_top_notification(page, exd.get('detail', 'Google sign-in failed.'), C.accent())
       except Exception as err:
-        show_top_notification(page, f'Google sign-in error: {err}', '#DC2626')
+        show_top_notification(page, f'Google sign-in error: {err}', C.accent())
       finally:
         server.stop()
 
     show_top_notification(page, 'Complete sign-in in your browser…', '#2563EB')
     threading.Thread(target=_run, daemon=True).start()
+
+  # Password recovery works whether or not the user is signed in, so these
+  # dedicated views are resolved before the guest/login gate.
+  if profile_page_mode == 'forgot':
+    return build_forgot_page()
+  if profile_page_mode == 'reset':
+    return build_reset_page()
 
   if not current_logged_in_user:
     if profile_page_mode == 'track':
@@ -282,7 +521,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                                 alignment=ft.alignment.center,
                                 content=ft.Icon(
                                     ft.icons.LOCK_PERSON_OUTLINED,
-                                    color='#DC2626',
+                                    color=C.accent(),
                                     size=20,
                                 ),
                             ),
@@ -310,7 +549,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                         content=ft.TextButton(
                             'Forgot password?',
                             style=ft.ButtonStyle(color=C.soft()),
-                            on_click=handle_forgot_password,
+                            on_click=open_forgot_page,
                         ),
                     ),
                     ft.Row([
@@ -333,7 +572,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                     ft.TextButton(
                         'Track an order without signing in',
                         icon=ft.icons.LOCAL_SHIPPING_OUTLINED,
-                        style=ft.ButtonStyle(color='#DC2626'),
+                        style=ft.ButtonStyle(color=C.accent()),
                         on_click=lambda e: open_track_guest(),
                     ),
                 ], spacing=12),
@@ -344,6 +583,117 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
   # ==========================================================================
   # LOGGED IN VIEW
   # ==========================================================================
+
+  # ---------------- FIRST-TIME PROFILE ONBOARDING ----------------
+  def build_onboarding_page():
+    """Collect phone (M-Pesa / order notifications) and date of birth."""
+    uid = current_logged_in_user.get('id', '')
+    email = current_logged_in_user.get('email', '')
+
+    fullname_field = ft.TextField(
+        label='Full Name', border_color=C.input_border(), focused_border_color=C.accent(),
+        text_size=13, height=44, bgcolor=C.field(), color=C.text(),
+        value=(hub_profile.get('full_name') or ''),
+    )
+    phone_field = ft.TextField(
+        label='Phone Number', hint_text='e.g. 0712345678',
+        border_color=C.input_border(), focused_border_color=C.accent(),
+        text_size=13, height=44, bgcolor=C.field(), color=C.text(),
+        keyboard_type=ft.KeyboardType.PHONE,
+        value=(hub_profile.get('phone') or ''),
+    )
+    birthdate_field = ft.TextField(
+        label='Date of Birth', hint_text='e.g. 1995-06-15',
+        border_color=C.input_border(), focused_border_color=C.accent(),
+        text_size=13, height=44, bgcolor=C.field(), color=C.text(),
+    )
+    gender_drop = ft.Dropdown(
+        label='Gender', border_color=C.input_border(), text_size=13, bgcolor=C.field(),
+        color=C.text(),
+        options=[ft.dropdown.Option(g) for g in ['Male', 'Female', 'Other']],
+    )
+    status_text = ft.Text('', size=12, color=C.soft())
+
+    def finish(skip=False):
+      global profile_page_mode
+      if not skip:
+        payload = {
+            'full_name': (fullname_field.value or '').strip(),
+            'phone': (phone_field.value or '').strip(),
+            'birth_date': (birthdate_field.value or '').strip(),
+            'gender': (gender_drop.value or '').strip(),
+        }
+        if not payload['phone']:
+          status_text.value = 'Please add a phone number so we can send M-Pesa and order updates.'
+          status_text.color = C.danger()
+          page.update()
+          return
+        try:
+          res = api_client.patch(f'/auth/profile/{uid}', json=payload, timeout=10)
+          if res.status_code not in [200, 201]:
+            detail = 'Could not save your details. You can add them later in Settings.'
+            try:
+              detail = res.json().get('detail', detail)
+            except Exception:
+              pass
+            status_text.value = detail
+            status_text.color = C.danger()
+            page.update()
+            return
+          hub_profile['full_name'] = payload['full_name']
+          hub_profile['phone'] = payload['phone']
+          user_info['phone'] = payload['phone']
+          if payload['full_name']:
+            user_info['name'] = payload['full_name']
+          notify(page, 'Profile complete. Welcome to AyuTech!', '#16A34A', ft.icons.CHECK_CIRCLE, title='All set')
+        except Exception as err:
+          status_text.value = f'Connection error: {err}'
+          status_text.color = C.danger()
+          page.update()
+          return
+      profile_page_mode = ''
+      switch_tab_callback(4)
+
+    return ft.Container(
+        padding=20,
+        bgcolor=C.bg(),
+        expand=True,
+        alignment=ft.alignment.top_center,
+        content=ft.Column([
+            ft.Row([
+                ft.Container(
+                    width=44, height=44, bgcolor=C.accent_soft(), border_radius=22,
+                    alignment=ft.alignment.center,
+                    content=ft.Icon(ft.icons.PERSON_ADD_ALT_1, color=C.accent(), size=20),
+                ),
+                ft.Column([
+                    ft.Text('Complete your profile', size=18, weight=ft.FontWeight.BOLD, color=C.text()),
+                    ft.Text(email, size=11, color=C.soft()),
+                ], spacing=2, expand=True),
+            ], spacing=12),
+            ft.Text('Add a phone number for M-Pesa receipts and order notifications. Date of birth is optional.',
+                    size=12, color=C.soft()),
+            ft.Divider(color=C.divider(), height=8),
+            fullname_field,
+            phone_field,
+            birthdate_field,
+            gender_drop,
+            status_text,
+            ft.ElevatedButton(
+                'Save & Continue', width=380, height=46,
+                bgcolor=C.accent(), color=C.on_accent(),
+                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=14)),
+                on_click=lambda e: finish(skip=False),
+            ),
+            ft.TextButton(
+                'Skip for now', style=ft.ButtonStyle(color=C.soft()),
+                on_click=lambda e: finish(skip=True),
+            ),
+        ], spacing=12, scroll=ft.ScrollMode.AUTO, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+    )
+
+  if profile_page_mode == 'onboarding':
+    return build_onboarding_page()
 
   # ---------------- PROFILE SETTINGS PAGE ----------------
   def build_settings_page():
@@ -370,7 +720,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
             ft.Container(
                 expand=True,
                 border_radius=36,
-                bgcolor='#DC2626',
+                bgcolor=C.accent(),
                 alignment=ft.alignment.center,
                 content=ft.Text(
                     (profile_data['username'] or profile_data['full_name'] or logged_in_email)[:2].upper(),
@@ -397,13 +747,13 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
     def refresh_image_previews():
       if profile_data.get('avatar_url'):
         avatar_preview.content = ft.Container(
-            expand=True, border_radius=36, bgcolor='#DC2626', clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            expand=True, border_radius=36, bgcolor=C.accent(), clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
             alignment=ft.alignment.center,
             content=ft.Image(src=profile_data['avatar_url'], fit=ft.ImageFit.COVER, width=72, height=72)
         )
       else:
         avatar_preview.content = ft.Container(
-            expand=True, border_radius=36, bgcolor='#DC2626', clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            expand=True, border_radius=36, bgcolor=C.accent(), clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
             alignment=ft.alignment.center,
             content=ft.Text(
                 (profile_data['username'] or profile_data['full_name'] or logged_in_email)[:2].upper(),
@@ -453,6 +803,8 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
     def change_theme(e):
       theme_mod.apply_theme(page, theme_drop.value or 'system')
       notify(page, f'Theme set to {theme_drop.value.title()}', '#16A34A', ft.icons.BRIGHTNESS_6_OUTLINED, title='Appearance')
+      # Rebuild settings so every themed token refreshes immediately.
+      switch_tab_callback(4)
 
     theme_drop = ft.Dropdown(
         label='App Theme', value=app_state.theme_mode, border_color=C.input_border(),
@@ -477,10 +829,10 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
         return
       for idx, addr in enumerate(addrs):
         row = ft.Row([
-            ft.Icon(ft.icons.LOCATION_ON_OUTLINED, size=16, color='#DC2626'),
+            ft.Icon(ft.icons.LOCATION_ON_OUTLINED, size=16, color=C.accent()),
             ft.Text(str(addr), size=12, color=C.text(), expand=True, max_lines=2),
             ft.IconButton(
-                ft.icons.DELETE_OUTLINE, icon_size=16, icon_color='#DC2626',
+                ft.icons.DELETE_OUTLINE, icon_size=16, icon_color=C.accent(),
                 tooltip='Remove address',
                 on_click=lambda e, i=idx: remove_address(i),
             ),
@@ -504,7 +856,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
         return
       addrs = [a for a in (profile_data.get('addresses') or []) if a]
       if val in addrs:
-        notify(page, 'Address already saved.', '#DC2626', ft.icons.ERROR_OUTLINE, title='Duplicate Address')
+        notify(page, 'Address already saved.', C.accent(), ft.icons.ERROR_OUTLINE, title='Duplicate Address')
         return
       addrs.append(val)
       profile_data['addresses'] = addrs
@@ -542,9 +894,9 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
             detail = res.json().get('detail', detail)
           except Exception:
             pass
-          notify(page, detail, '#DC2626', ft.icons.ERROR_OUTLINE, title='Upload Failed')
+          notify(page, detail, C.accent(), ft.icons.ERROR_OUTLINE, title='Upload Failed')
       except Exception as err:
-        notify(page, f'Upload error: {err}', '#DC2626', ft.icons.ERROR_OUTLINE, title='Upload Failed')
+        notify(page, f'Upload error: {err}', C.accent(), ft.icons.ERROR_OUTLINE, title='Upload Failed')
 
     file_picker = ft.FilePicker(on_result=upload_selected)
     existing_picker = _SHARED_FILE_PICKER[0]
@@ -565,7 +917,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
       pending_upload['type'] = 'banner'
       file_picker.pick_files(allow_multiple=False, allowed_extensions=['jpg', 'jpeg', 'png', 'webp', 'gif'])
 
-    username_field = ft.TextField(label='Username', value=profile_data['username'], border_color='#DC2626',
+    username_field = ft.TextField(label='Username', value=profile_data['username'], border_color=C.accent(),
                                   text_size=13, height=44, bgcolor=C.field())
     fullname_field = ft.TextField(label='Full Name', value=profile_data['full_name'], border_color=C.input_border(),
                                   text_size=13, height=44, bgcolor=C.field())
@@ -607,9 +959,9 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
           notify(page, 'Profile saved!', '#16A34A', ft.icons.SAVE_OUTLINED, title='Profile Saved')
         else:
           detail = res.json().get('detail', 'Failed to save profile.') if res.content else 'Failed to save profile.'
-          notify(page, detail, '#DC2626', ft.icons.ERROR_OUTLINE, title='Save Failed')
+          notify(page, detail, C.accent(), ft.icons.ERROR_OUTLINE, title='Save Failed')
       except Exception as err:
-        notify(page, f'Save error: {err}', '#DC2626', ft.icons.ERROR_OUTLINE, title='Save Failed')
+        notify(page, f'Save error: {err}', C.accent(), ft.icons.ERROR_OUTLINE, title='Save Failed')
 
     render_addresses()
     load_profile_async()
@@ -632,7 +984,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                                 width=24,
                                 height=24,
                                 border_radius=12,
-                                bgcolor='#DC2626',
+                                bgcolor=C.accent(),
                                 alignment=ft.alignment.center,
                                 left=-2,
                                 bottom=-2,
@@ -661,13 +1013,13 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                     ft.Container(
                         bgcolor=C.surface(), padding=15, border_radius=15, border=ft.border.all(1, C.divider()),
                         content=ft.Column([
-                            ft.Row([ft.Icon(ft.icons.PHOTO_CAMERA_OUTLINED, color='#DC2626', size=18),
+                            ft.Row([ft.Icon(ft.icons.PHOTO_CAMERA_OUTLINED, color=C.accent(), size=18),
                                     ft.Text('Profile Photo', size=13, weight=ft.FontWeight.BOLD, color=C.text()),
                                     ft.Container(width=8),
                                     ft.OutlinedButton('Upload Photo', icon=ft.icons.UPLOAD_FILE, height=32,
                                                        on_click=pick_avatar)], spacing=4),
                             ft.Divider(color=C.divider(), height=16),
-                            ft.Row([ft.Icon(ft.icons.PHOTO_OUTLINED, color='#DC2626', size=18),
+                            ft.Row([ft.Icon(ft.icons.PHOTO_OUTLINED, color=C.accent(), size=18),
                                     ft.Text('Banner Photo', size=13, weight=ft.FontWeight.BOLD, color=C.text()),
                                     ft.Container(width=8),
                                     ft.OutlinedButton('Upload Banner', icon=ft.icons.UPLOAD_FILE, height=32,
@@ -743,11 +1095,11 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                     ft.Column([
                         ft.Text(item.get('name', 'Product'), size=12, weight=ft.FontWeight.BOLD,
                                 color=C.text(), max_lines=1),
-                        ft.Text(f"KES {float(item.get('price', 0)):,.0f}", size=12, color='#DC2626',
+                        ft.Text(f"KES {float(item.get('price', 0)):,.0f}", size=12, color=C.accent(),
                                 weight=ft.FontWeight.BOLD),
                     ], expand=True, spacing=2),
                     ft.IconButton(
-                        ft.icons.FAVORITE, icon_color='#DC2626', icon_size=18, tooltip='Remove',
+                        ft.icons.FAVORITE, icon_color=C.accent(), icon_size=18, tooltip='Remove',
                         on_click=lambda e, it=item: remove_wishlist_item(it),
                     ),
                     ft.Icon(ft.icons.ARROW_FORWARD_IOS, size=14, color=C.muted()),
@@ -759,7 +1111,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
       if open_detail_callback:
         open_detail_callback(item)
       else:
-        show_top_notification(page, 'Opening product not supported on this view.', '#DC2626')
+        show_top_notification(page, 'Opening product not supported on this view.', C.accent())
 
     def remove_wishlist_item(item):
       if item.get('id') in wishlist:
@@ -1070,13 +1422,13 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                       ft.Text(
                           f"KES {float(item.get('price', 0)):,.0f}",
                           size=11,
-                          color='#DC2626',
+                          color=C.accent(),
                           weight=ft.FontWeight.BOLD,
                       ),
                   ], expand=True),
                   ft.IconButton(
                       icon=ft.icons.ADD_SHOPPING_CART,
-                      icon_color='#DC2626',
+                      icon_color=C.accent(),
                       tooltip='Add to Cart',
                       on_click=lambda e, prod=item: (
                           update_cart_callback(prod, 1),
@@ -1114,7 +1466,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
               ),
               ft.TextButton(
                   'View All',
-                  style=ft.ButtonStyle(color='#DC2626'),
+                  style=ft.ButtonStyle(color=C.accent()),
                   on_click=lambda e: open_wishlist_page(),
               ),
           ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),

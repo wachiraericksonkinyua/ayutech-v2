@@ -5,6 +5,7 @@ import httpx
 import time
 from typing import cast
 from app.ui.state import all_products, cart, wishlist, API_BASE_URL
+import app.ui.state as app_state
 from app.ui.notifications import notify
 from app.ui import theme as theme_mod
 from app.ui import colors as C
@@ -67,6 +68,9 @@ def main(page: ft.Page):
     page.theme_mode = ft.ThemeMode.SYSTEM
     page.padding = 0
     page.bgcolor = C.bg()
+
+    # Explicit light/dark schemes so native controls follow the toggle.
+    theme_mod.configure_themes(page)
 
     # Set strict mobile window dimensions across Flet versions
     window = getattr(page, "window", None)
@@ -417,7 +421,7 @@ def main(page: ft.Page):
         is_logged_in = profile_mod.current_logged_in_user is not None or bool(current_user_id)
 
         if idx in [2, 3] and not is_logged_in:
-            notify(page, "Please sign in or create an account to view cart and orders.", "#DC2626", ft.icons.LOCK, title="Access Locked")
+            notify(page, "Please sign in or create an account to view cart and orders.", C.danger(), ft.icons.LOCK, title="Access Locked")
             # Force redirect to Hub / Profile tab
             idx = 4
 
@@ -439,6 +443,76 @@ def main(page: ft.Page):
             content_area.content = build_dashboard_view(page)
         page.update()
 
+    # --- OAuth / password-recovery callback interception ---------------------
+    def _query_dict() -> dict:
+        data = {}
+        try:
+            data.update(dict(page.query.to_dict or {}))
+        except Exception:
+            pass
+        if not data:
+            # Fallback: parse the raw route/url (some renderers keep the query
+            # on the route rather than in page.query).
+            try:
+                from urllib.parse import urlparse, parse_qs
+                raw = f"{page.url}{page.route}"
+                parsed = parse_qs(urlparse(raw).query)
+                data = {k: v[0] for k, v in parsed.items() if v}
+            except Exception:
+                pass
+        return data
+
+    def _clear_query():
+        if getattr(page, "web", False):
+            try:
+                page.go("/")
+            except Exception:
+                pass
+
+    def handle_auth_callback():
+        """Consume login/reset tokens the backend appended to the app URL."""
+        import app.ui.views.profile_view as profile_mod
+
+        q = _query_dict()
+        login_token = q.get("login_token")
+        reset_token = q.get("reset_token")
+        oauth_error = q.get("oauth_error")
+        if not (login_token or reset_token or oauth_error):
+            return
+
+        if login_token:
+            try:
+                res = httpx.post(
+                    f"{API_BASE_URL}/auth/consume-login-token",
+                    json={"token": login_token},
+                    timeout=20,
+                )
+                data = res.json() if res.content else {}
+                if res.status_code == 200:
+                    app_state.access_token = data.get("access_token", "") or ""
+                    profile_mod.apply_login(data.get("user"))
+                    if profile_mod.is_profile_incomplete(app_state.current_user_id):
+                        profile_mod.profile_page_mode = "onboarding"
+                    else:
+                        profile_mod.profile_page_mode = ""
+                    notify(page, "Signed in with Google!", "#16A34A", title="Welcome")
+                else:
+                    notify(page, data.get("detail", "Google sign-in failed."), C.danger(), title="Sign-in failed")
+            except Exception as err:
+                notify(page, f"Google sign-in error: {err}", C.danger())
+            switch_tab(4)
+
+        elif reset_token:
+            profile_mod.pending_reset_token = reset_token
+            profile_mod.profile_page_mode = "reset"
+            switch_tab(4)
+
+        elif oauth_error:
+            notify(page, oauth_error, C.danger(), title="Sign-in problem")
+            switch_tab(4)
+
+        _clear_query()
+
     bottom_nav_bar = ft.NavigationBar(
         bgcolor="transparent",
         selected_index=0,
@@ -455,6 +529,28 @@ def main(page: ft.Page):
         ]
     )
 
+    def _apply_theme_toggle(e=None):
+        theme_mod.toggle_theme(page)
+        theme_toggle_btn.icon = (
+            ft.icons.LIGHT_MODE if app_state.is_dark else ft.icons.DARK_MODE
+        )
+        theme_toggle_btn.tooltip = (
+            "Switch to light mode" if app_state.is_dark else "Switch to dark mode"
+        )
+        # Rebuild the active view so every themed token refreshes instantly.
+        try:
+            switch_tab(bottom_nav_bar.selected_index)
+        except Exception:
+            pass
+
+    theme_toggle_btn = ft.IconButton(
+        icon=ft.icons.DARK_MODE if not app_state.is_dark else ft.icons.LIGHT_MODE,
+        icon_color=C.accent(),
+        icon_size=20,
+        tooltip="Switch to dark mode" if not app_state.is_dark else "Switch to light mode",
+        on_click=_apply_theme_toggle,
+    )
+
     floating_footer = ft.Container(
         bottom=10,
         left=15,
@@ -464,8 +560,11 @@ def main(page: ft.Page):
             bgcolor=C.surface_raised(),
             border_radius=26,
             border=ft.border.all(1.5, C.accent()),
-            padding=ft.padding.symmetric(horizontal=10, vertical=5),
-            content=bottom_nav_bar
+            padding=ft.padding.symmetric(horizontal=6, vertical=3),
+            content=ft.Row([
+                ft.Container(content=bottom_nav_bar, expand=True),
+                theme_toggle_btn,
+            ], spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER)
         )
     )
 
@@ -508,6 +607,7 @@ def main(page: ft.Page):
     )
 
     fetch_products()
+    handle_auth_callback()
 
 if __name__ == "__main__":
     ft.app(target=main)

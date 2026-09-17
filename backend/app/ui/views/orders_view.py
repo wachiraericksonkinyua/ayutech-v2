@@ -22,7 +22,7 @@ def build_orders_view(page: ft.Page):
       return '#2563EB'  # Blue
     elif 'cancel' in s or 'fail' in s:
       return '#6B7280'  # Gray
-    return '#DC2626'  # Red for Pending / Pending PIN
+    return C.accent()  # Red for Pending / Pending PIN
 
   def show_receipt_dialog(ord_data: dict):
     status = ord_data.get('status', 'Pending PIN')
@@ -37,7 +37,7 @@ def build_orders_view(page: ft.Page):
         label='M-Pesa Code (e.g. UIA9U5Y7NU)',
         text_size=12,
         height=40,
-        border_color='#DC2626',
+        border_color=C.accent(),
     )
 
     def submit_manual_receipt(e):
@@ -57,7 +57,7 @@ def build_orders_view(page: ft.Page):
           sync_orders_status()
           render_orders()
         else:
-          notify(page, data.get('detail', 'Invalid receipt code.'), '#DC2626', title='Verification Failed')
+          notify(page, data.get('detail', 'Invalid receipt code.'), C.accent(), title='Verification Failed')
         page.update()
       except Exception as err:
         print(f'Manual code entry error: {err}')
@@ -68,7 +68,7 @@ def build_orders_view(page: ft.Page):
                 ft.Container(content=receipt_input, expand=True),
                 ft.ElevatedButton(
                     'Verify',
-                    bgcolor='#DC2626',
+                    bgcolor=C.accent(),
                     color='white',
                     height=40,
                     style=ft.ButtonStyle(
@@ -195,7 +195,7 @@ def build_orders_view(page: ft.Page):
                     f"KES {float(ord_data.get('total') or ord_data.get('total_amount') or 0):,.0f}",
                     size=16,
                     weight=ft.FontWeight.BOLD,
-                    color='#DC2626',
+                    color=C.accent(),
                 ),
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
         ], spacing=10, tight=True),
@@ -207,7 +207,7 @@ def build_orders_view(page: ft.Page):
         actions=[
             ft.TextButton(
                 'Close',
-                style=ft.ButtonStyle(color='#DC2626'),
+                style=ft.ButtonStyle(color=C.accent()),
                 on_click=lambda e: close_dialog(receipt_dialog),
             )
         ],
@@ -296,7 +296,7 @@ def build_orders_view(page: ft.Page):
 
         notify(
             page, f'Status checked: {new_status}',
-            '#25D366' if new_status in ['Paid', 'Processing'] else '#DC2626',
+            '#25D366' if new_status in ['Paid', 'Processing'] else C.accent(),
             title='Order Status',
         )
         render_orders()
@@ -306,7 +306,7 @@ def build_orders_view(page: ft.Page):
           detail = res.json().get('detail', f'Status lookup failed ({res.status_code}).')
         except Exception:
           detail = f'Status lookup failed ({res.status_code}).'
-        notify(page, detail, '#DC2626', title='Status Check Failed')
+        notify(page, detail, C.accent(), title='Status Check Failed')
         page.update()
     except Exception as err:
       print(f'Manual verification error: {err}')
@@ -348,7 +348,7 @@ def build_orders_view(page: ft.Page):
               border=ft.border.all(1, C.divider()),
               content=ft.Column([
                   ft.Icon(
-                      ft.icons.RECEIPT_LONG_OUTLINED, size=50, color='#DC2626'
+                      ft.icons.RECEIPT_LONG_OUTLINED, size=50, color=C.accent()
                   ),
                   ft.Text(
                       'No active orders found',
@@ -411,7 +411,7 @@ def build_orders_view(page: ft.Page):
         verify_btn = ft.TextButton(
             'Check M-Pesa Status',
             icon=ft.icons.REFRESH,
-            style=ft.ButtonStyle(color='#DC2626'),
+            style=ft.ButtonStyle(color=C.accent()),
             on_click=lambda e, ref=order_id_display: manual_verify_payment(ref),
         )
 
@@ -427,7 +427,7 @@ def build_orders_view(page: ft.Page):
               ft.Row([
                   ft.Row([
                       ft.Icon(
-                          ft.icons.RECEIPT_OUTLINED, size=16, color='#DC2626'
+                          ft.icons.RECEIPT_OUTLINED, size=16, color=C.accent()
                       ),
                       ft.Text(
                           f'Order #{order_id_display}',
@@ -463,7 +463,7 @@ def build_orders_view(page: ft.Page):
                       f'KES {order_total:,.0f}',
                       size=14,
                       weight=ft.FontWeight.BOLD,
-                      color='#DC2626',
+                      color=C.accent(),
                   ),
               ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
               verify_btn,
@@ -514,7 +514,7 @@ def build_orders_view(page: ft.Page):
           padding=30,
           border=ft.border.all(1, C.divider()),
           content=ft.Column([
-              ft.ProgressRing(width=32, height=32, stroke_width=3, color='#DC2626'),
+              ft.ProgressRing(width=32, height=32, stroke_width=3, color=C.accent()),
               ft.Text('Loading your orders...', size=13, weight=ft.FontWeight.W_500, color=C.soft()),
           ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=12),
       )
@@ -528,7 +528,7 @@ def build_orders_view(page: ft.Page):
       ),
       ft.IconButton(
           icon=ft.icons.REFRESH,
-          icon_color='#DC2626',
+          icon_color=C.accent(),
           tooltip='Refresh Status',
           on_click=on_refresh_click,
       ),
@@ -536,7 +536,7 @@ def build_orders_view(page: ft.Page):
 
   return ft.Container(
       padding=ft.padding.only(left=15, right=15, top=15, bottom=120),
-      bgcolor='#FFFFFF',
+      bgcolor=C.bg(),
       expand=True,
       content=ft.Column(
           [header_row, orders_list_container],

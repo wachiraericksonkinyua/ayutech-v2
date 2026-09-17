@@ -1,9 +1,10 @@
 # backend/app/main.py
 
 import os
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -367,6 +368,15 @@ def root(request: Request):
     Clients that explicitly ask for JSON (e.g. monitoring tools) still get the
     original service metadata so nothing that depended on the old response breaks.
     """
+    # Safety net: if the OAuth provider (or password recovery) falls back to the
+    # Supabase Site URL instead of an allow-listed redirect, forward the callback
+    # to the real handler rather than stranding the user on this landing page.
+    params = dict(request.query_params)
+    if params.get("type") == "recovery":
+        return RedirectResponse("/api/v1/auth/reset-callback?" + urlencode(params))
+    if params.get("code") or params.get("error"):
+        return RedirectResponse("/api/v1/auth/oauth-callback?" + urlencode(params))
+
     accept = (request.headers.get("accept") or "").lower()
     wants_json = "application/json" in accept and "text/html" not in accept
     if wants_json:

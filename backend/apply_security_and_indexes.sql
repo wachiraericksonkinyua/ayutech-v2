@@ -5,15 +5,41 @@
 -- ============================================================================
 
 -- 1) CUSTOMER PROFILE FIELDS --------------------------------------------------
+-- The profile table is public.customers (there is no customer_profiles table).
 -- Required for the profile photo / banner / personal info to save.
 ALTER TABLE public.customers
   ADD COLUMN IF NOT EXISTS username   TEXT,
   ADD COLUMN IF NOT EXISTS full_name  TEXT,
-  ADD COLUMN IF NOT EXISTS birth_date TEXT,
+  ADD COLUMN IF NOT EXISTS birth_date DATE,
   ADD COLUMN IF NOT EXISTS gender     TEXT,
   ADD COLUMN IF NOT EXISTS phone      TEXT,
   ADD COLUMN IF NOT EXISTS avatar_url TEXT,
-  ADD COLUMN IF NOT EXISTS banner_url TEXT;
+  ADD COLUMN IF NOT EXISTS banner_url TEXT,
+  ADD COLUMN IF NOT EXISTS addresses  JSONB DEFAULT '[]'::jsonb;
+
+-- If birth_date was previously created as TEXT, convert it to DATE safely.
+DO $$
+DECLARE
+  col_type TEXT;
+BEGIN
+  SELECT data_type INTO col_type
+    FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name = 'customers'
+     AND column_name = 'birth_date';
+  IF col_type IS NOT NULL AND col_type <> 'date' THEN
+    ALTER TABLE public.customers
+      ALTER COLUMN birth_date TYPE DATE
+      USING (
+        CASE
+          WHEN birth_date IS NULL THEN NULL
+          WHEN trim(birth_date::text) = '' THEN NULL
+          WHEN trim(birth_date::text) ~ '^\d{4}-\d{2}-\d{2}$'
+            THEN trim(birth_date::text)::date
+          ELSE NULL
+        END
+      );
+  END IF;
+END $$;
 
 -- 2) ORDERS: delivery address -------------------------------------------------
 ALTER TABLE public.orders

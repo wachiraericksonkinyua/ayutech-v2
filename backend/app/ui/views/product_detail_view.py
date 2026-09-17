@@ -161,7 +161,7 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
         picked = {"rating": 0}
         comment_field = ft.TextField(
             label="Your feedback", hint_text="How was the part / service?", multiline=True,
-            min_lines=2, max_lines=4, text_size=12, border_color="#DC2626", bgcolor=C.field(),
+            min_lines=2, max_lines=4, text_size=12, border_color=C.accent(), bgcolor=C.field(),
         )
 
         def pick_star(idx):
@@ -178,7 +178,7 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
 
         def submit(ev):
             if picked["rating"] < 1:
-                notify(page, "Tap a star to rate the part.", "#DC2626", ft.icons.ERROR_OUTLINE, title="Rating Missing")
+                notify(page, "Tap a star to rate the part.", C.accent(), ft.icons.ERROR_OUTLINE, title="Rating Missing")
                 return
             customer_name = (user_info.get("name") or user_info.get("email") or "").split("@")[0] or "Customer"
             payload = {
@@ -201,9 +201,9 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
                         detail = res.json().get("detail", detail)
                     except Exception:
                         pass
-                    notify(page, detail, "#DC2626", ft.icons.ERROR_OUTLINE, title="Review Failed")
+                    notify(page, detail, C.accent(), ft.icons.ERROR_OUTLINE, title="Review Failed")
             except Exception as err:
-                notify(page, f"Submit error: {err}", "#DC2626", ft.icons.ERROR_OUTLINE, title="Review Failed")
+                notify(page, f"Submit error: {err}", C.accent(), ft.icons.ERROR_OUTLINE, title="Review Failed")
 
         dlg = ft.AlertDialog(
             modal=True,

@@ -49,7 +49,7 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
         options=[ft.dropdown.Option(k) for k in zone_fees.keys()],
         value="Near Suburbs: Westlands/Kilimani (KES 300)",
         text_size=12,
-        border_color="#DC2626",
+        border_color=C.accent(),
         bgcolor=C.field(),
         on_change=on_zone_change
     )
@@ -57,7 +57,7 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
     phone_input = ft.TextField(
         label="M-Pesa Number for STK Push",
         hint_text="e.g. 0712345678 or 0112345678",
-        border_color="#DC2626",
+        border_color=C.accent(),
         bgcolor=C.field(),
         height=45,
         text_size=13,
@@ -206,7 +206,7 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
 
     def make_payment_row(label, icon, selected_icon, selected):
         return ft.Row([
-            ft.Row([ft.Icon(icon, color=C.text() if not selected else "#DC2626"), ft.Text(label, weight=ft.FontWeight.BOLD, color=C.text(), size=13)]),
+            ft.Row([ft.Icon(icon, color=C.text() if not selected else C.accent()), ft.Text(label, weight=ft.FontWeight.BOLD, color=C.text(), size=13)]),
             selected_icon
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
 
@@ -257,7 +257,7 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
         import app.ui.views.profile_view as profile_mod
         is_logged_in = profile_mod.current_logged_in_user is not None or bool(current_user_id)
         if not is_logged_in:
-            notify(page, "Please sign in or create an account to check out.", "#DC2626", ft.icons.LOCK, title="Access Locked")
+            notify(page, "Please sign in or create an account to check out.", C.accent(), ft.icons.LOCK, title="Access Locked")
             if switch_tab_callback is not None:
                 switch_tab_callback(4)
             return
@@ -266,7 +266,7 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
         formatted_phone = format_phone_number(raw_phone)
 
         if selected_payment == "mpesa" and (len(formatted_phone) != 12 or not formatted_phone.startswith("254")):
-            notify(page, "Enter a valid Kenyan number (e.g. 0712345678 or 0112345678)", "#DC2626", ft.icons.ERROR_OUTLINE, title="Invalid Phone")
+            notify(page, "Enter a valid Kenyan number (e.g. 0712345678 or 0112345678)", C.accent(), ft.icons.ERROR_OUTLINE, title="Invalid Phone")
             return
 
         checkout_btn.on_click = None
@@ -381,14 +381,14 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
       def open_verify(e):
         code_field = ft.TextField(
             label="M-Pesa confirmation code", hint_text="e.g. QRS1234ABCD",
-            text_size=13, border_color="#DC2626", bgcolor=C.field(), height=44,
+            text_size=13, border_color=C.accent(), bgcolor=C.field(), height=44,
         )
         close_btn = ft.TextButton("Cancel")
 
         def submit_code(evt):
           code = (code_field.value or "").strip()
           if not code:
-            notify(page, "Enter the M-Pesa code from your SMS.", "#DC2626", ft.icons.ERROR_OUTLINE, title="Missing Code")
+            notify(page, "Enter the M-Pesa code from your SMS.", C.accent(), ft.icons.ERROR_OUTLINE, title="Missing Code")
             return
           try:
             r = httpx.post(
@@ -407,10 +407,10 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
                 detail = r.json().get("detail", detail)
               except Exception:
                 pass
-              notify(page, detail, "#DC2626", ft.icons.ERROR_OUTLINE, title="Verification Failed")
+              notify(page, detail, C.accent(), ft.icons.ERROR_OUTLINE, title="Verification Failed")
               refresh_status()
           except Exception as err:
-            notify(page, f"Verify error: {err}", "#DC2626", ft.icons.ERROR_OUTLINE, title="Verification Failed")
+            notify(page, f"Verify error: {err}", C.accent(), ft.icons.ERROR_OUTLINE, title="Verification Failed")
 
         verify_btn = ft.ElevatedButton("Verify Code", bgcolor=C.accent(), color="white", style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=12)), on_click=submit_code)
         dlg = ft.AlertDialog(
@@ -439,7 +439,7 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
                       content=ft.Icon(ft.icons.CHECK_CIRCLE, color="#16A34A", size=44),
                   ),
                   ft.Text("Order Confirmed!", size=20, weight=ft.FontWeight.BOLD, color=C.text()),
-                  ft.Text(f"Reference: {cart_ref}", size=13, weight=ft.FontWeight.BOLD, color="#DC2626"),
+                  ft.Text(f"Reference: {cart_ref}", size=13, weight=ft.FontWeight.BOLD, color=C.accent()),
                   ft.Text(order.get("date", ""), size=11, color=C.muted()),
               ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
           ),
@@ -448,7 +448,7 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
               content=ft.Column([
                   ft.Text("Summary", size=13, weight=ft.FontWeight.BOLD, color=C.text()),
                   ft.Row([ft.Text("Items", size=12, color=C.soft()), ft.Text(f"{len(order.get('items') or [])}", size=12, color=C.text(), weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                  ft.Row([ft.Text("Total", size=12, color=C.soft()), ft.Text(f"KES {float(order.get('total') or 0):,.0f}", size=13, color="#DC2626", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                  ft.Row([ft.Text("Total", size=12, color=C.soft()), ft.Text(f"KES {float(order.get('total') or 0):,.0f}", size=13, color=C.accent(), weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                   ft.Row([ft.Text("Payment", size=12, color=C.soft()), ft.Text(order.get("payment_method", ""), size=12, color=C.text(), weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                   ft.Row([ft.Text("Fulfillment", size=12, color=C.soft()), ft.Text(order.get("fulfillment", ""), size=12, color=C.text(), weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
               ], spacing=8, tight=True),
