@@ -1,0 +1,17 @@
+# backend/pubspec.yaml
+#
+# Read by `flet build` (not by the FastAPI server). Flet merges the
+# `dependencies` and `dependency_overrides` sections below into the generated
+# Flutter project.
+#
+# Why: Flet 0.22.1's build template targets Flutter 3.19, but pub resolves the
+# newest url_launcher desktop plugins, whose generated Pigeon code uses
+# `FL_STANDARD_MESSAGE_CODEC_CLASS` (Flutter 3.22+). That breaks the Linux and
+# Windows desktop builds. Pinning the desktop implementations to the last
+# Flutter-3.19-compatible releases fixes it.
+
+dependencies: {}
+
+dependency_overrides:
+  url_launcher_linux: 3.1.1
+  url_launcher_windows: 3.1.2

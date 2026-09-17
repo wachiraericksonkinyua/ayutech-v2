@@ -60,9 +60,33 @@ app.include_router(reviews.router, prefix="/api/v1/reviews", tags=["Product Revi
 from app.routers import auth
 app.include_router(auth.router, prefix="/api/v1", tags=["Auth"])
 
+# --- Customer web app (Flet) mounted at /shop --------------------------------
+# Serving the Flet client from the same FastAPI process gives the landing page
+# a working "Open Web App" target without needing a separate host. Flet is an
+# optional dependency: if it is not installed the API still starts normally and
+# the landing page simply hides the web buttons.
+_FLET_WEB_MOUNTED = False
+try:
+    import flet.fastapi as flet_fastapi
+    from app.ui.main_app import main as flet_client_main
+
+    app.mount(
+        "/shop",
+        flet_fastapi.app(
+            flet_client_main,
+            app_name="AyuTech Motors",
+            app_short_name="AyuTech",
+            app_description="Shop genuine Japanese and heavy-duty auto spares.",
+        ),
+    )
+    _FLET_WEB_MOUNTED = True
+    print("Flet customer web app mounted at /shop")
+except Exception as _flet_err:  # pragma: no cover - optional integration
+    print(f"Flet web app not mounted: {_flet_err}")
+
 
 @app.on_event("startup")
-def _validate_config():
+async def _validate_config():
     """Fail fast if critical secrets are left at their insecure defaults."""
     weak_secrets = {"", "secret", "your_fallback_super_secret_key_12345"}
     if settings.SECRET_KEY in weak_secrets:
@@ -70,6 +94,15 @@ def _validate_config():
             "WARNING: SECRET_KEY is unset or using an insecure default. "
             "Set a strong SECRET_KEY environment variable before production use."
         )
+    # The mounted Flet sub-app does not run its own lifespan, so start its
+    # session eviction task here to avoid leaking expired web sessions.
+    if _FLET_WEB_MOUNTED:
+        try:
+            import flet.fastapi as flet_fastapi
+
+            await flet_fastapi.app_manager.start()
+        except Exception as _flet_start_err:  # pragma: no cover
+            print(f"Flet app manager not started: {_flet_start_err}")
 
 
 _LANDING_PAGE = """<!DOCTYPE html>
@@ -336,6 +369,8 @@ def root(request: Request):
 
     repo = os.getenv("GITHUB_REPO_URL", "https://github.com/wachiraericksonkinyua/ayutech-v2")
     web_app = (os.getenv("WEB_APP_URL", "") or "").strip()
+    if not web_app and _FLET_WEB_MOUNTED:
+        web_app = "/shop"
     apk_url = os.getenv("APK_DOWNLOAD_URL", f"{repo}/releases/latest/download/ayutech.apk")
     releases_url = f"{repo}/releases/latest"
     desktop_url = os.getenv("DESKTOP_DOWNLOAD_URL", releases_url)

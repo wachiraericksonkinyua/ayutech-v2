@@ -10,3 +10,4 @@ python-multipart
 PyJWT
 passlib
 bcrypt
+flet==0.22.1
