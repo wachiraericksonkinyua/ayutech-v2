@@ -393,7 +393,7 @@ def main(page: ft.Page):
         elif idx == 1:
             content_area.content = build_browse_view(page, update_cart, update_wishlist, open_product_detail)
         elif idx == 2:
-            content_area.content = build_cart_view(page, change_cart_qty)
+            content_area.content = build_cart_view(page, change_cart_qty, switch_tab)
         elif idx == 3:
             content_area.content = build_orders_view(page)
         elif idx == 4:

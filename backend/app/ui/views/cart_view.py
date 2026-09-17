@@ -15,7 +15,7 @@ def format_phone_number(raw: str) -> str:
         return "254" + cleaned
     return cleaned
 
-def build_cart_view(page: ft.Page, change_qty_callback):
+def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None):
     def get_item_image(img_url):
         clean_url = str(img_url).strip() if img_url else ""
         if not clean_url or not clean_url.startswith("http"):
@@ -203,6 +203,20 @@ def build_cart_view(page: ft.Page, change_qty_callback):
     cash_card.on_click = lambda e: set_payment("cash")
 
     def handle_checkout(e):
+        # Lock down checkout: guests must sign in before placing an order
+        import app.ui.views.profile_view as profile_mod
+        is_logged_in = profile_mod.current_logged_in_user is not None or bool(current_user_id)
+        if not is_logged_in:
+            page.snack_bar = ft.SnackBar(
+                ft.Text("🔒 Please sign in or create an account to check out."),
+                bgcolor="#DC2626"
+            )
+            page.snack_bar.open = True
+            page.update()
+            if switch_tab_callback is not None:
+                switch_tab_callback(4)
+            return
+
         raw_phone = phone_input.value.strip() if phone_input.value else ""
         formatted_phone = format_phone_number(raw_phone)
 
