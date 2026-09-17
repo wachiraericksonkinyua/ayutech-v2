@@ -307,6 +307,17 @@ def build_orders_view(page: ft.Page):
         page.snack_bar.open = True
         render_orders()
         page.update()
+      else:
+        try:
+          detail = res.json().get('detail', f'Status lookup failed ({res.status_code}).')
+        except Exception:
+          detail = f'Status lookup failed ({res.status_code}).'
+        page.snack_bar = ft.SnackBar(
+            ft.Text(f'⚠️ {detail}'),
+            bgcolor='#DC2626',
+        )
+        page.snack_bar.open = True
+        page.update()
     except Exception as err:
       print(f'Manual verification error: {err}')
 

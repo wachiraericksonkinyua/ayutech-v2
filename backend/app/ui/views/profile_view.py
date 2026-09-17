@@ -2,7 +2,7 @@
 
 import flet as ft
 import httpx
-from app.ui.state import API_BASE_URL, cart, current_user_id, user_info, wishlist
+from app.ui.state import API_BASE_URL, cart, current_user_id, my_orders, user_info, wishlist
 
 current_logged_in_user = None
 
@@ -154,6 +154,11 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback)
 
     global current_user_id
     current_user_id = ''
+    user_info['email'] = ''
+    # Clear per-user data so the next account never sees the previous one's data
+    my_orders.clear()
+    cart.clear()
+    wishlist.clear()
     page.snack_bar = ft.SnackBar(
         content=ft.Text('🔒 Signed out.'), bgcolor='#DC2626'
     )

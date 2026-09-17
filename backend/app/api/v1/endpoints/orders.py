@@ -119,6 +119,43 @@ async def get_user_orders(identifier: str):
         print(f"Fetch user orders error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     
+@router.get("/status/{order_ref}")
+async def get_order_status(order_ref: str):
+    """Returns the live status + M-Pesa receipt for an order by short reference or UUID."""
+    try:
+        clean_ref = (order_ref or "").strip()
+        if not clean_ref:
+            raise HTTPException(status_code=400, detail="Order reference required.")
+
+        record = None
+        res = supabase.table("orders").select(
+            "status", "receipt_number"
+        ).eq("order_reference", clean_ref).limit(1).execute()
+        records = getattr(res, "data", None) or []
+        if records:
+            record = records[0]
+        else:
+            res2 = supabase.table("orders").select(
+                "status", "receipt_number"
+            ).eq("id", clean_ref).limit(1).execute()
+            records2 = getattr(res2, "data", None) or []
+            if records2:
+                record = records2[0]
+
+        if not isinstance(record, dict):
+            raise HTTPException(status_code=404, detail="Order not found.")
+
+        return {
+            "order_reference": clean_ref,
+            "status": record.get("status", "Pending PIN"),
+            "receipt_number": record.get("receipt_number") or "",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Order status lookup error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/verify-receipt")
 async def verify_receipt(payload: VerifyReceiptRequest):
     order_ref = payload.order_reference.strip()
