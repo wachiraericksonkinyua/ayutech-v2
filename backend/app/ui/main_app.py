@@ -7,6 +7,7 @@ from typing import cast
 from app.ui.state import all_products, cart, wishlist, API_BASE_URL
 from app.ui.notifications import notify
 from app.ui import theme as theme_mod
+from app.ui import colors as C
 from app.ui.views.home_view import build_home_view
 from app.ui.views.browse_view import build_browse_view
 from app.ui.views.cart_view import build_cart_view
@@ -21,27 +22,42 @@ def build_loading_container():
     logo_url = "https://raw.githubusercontent.com/wachiraericksonkinyua/ayutech-v2/main/images/ayutech%20logo.jpg"
     return ft.Container(
         expand=True,
-        bgcolor="#FFFFFF",
+        bgcolor=C.bg(),
         alignment=ft.alignment.center,
         content=ft.Column(
             [
                 ft.Container(
-                    content=ft.Text("AYUTECH", size=28, weight=ft.FontWeight.BOLD, color="#DC2626"),
-                    padding=10
+                    width=92,
+                    height=92,
+                    border_radius=46,
+                    bgcolor=C.grad_primary(),
+                    shadow=C.card_shadow(),
+                    alignment=ft.alignment.center,
+                    content=ft.Text("A", size=40, weight=ft.FontWeight.BOLD, color="white"),
+                ),
+                ft.Container(height=6),
+                ft.Text(
+                    "AYUTECH",
+                    size=15,
+                    weight=ft.FontWeight.BOLD,
+                    letter_spacing=3,
+                    color=C.accent(),
                 ),
                 ft.Container(
                     content=ft.Image(
                         src=logo_url,
-                        width=140,
-                        height=140,
+                        width=120,
+                        height=120,
                         fit=ft.ImageFit.CONTAIN
                     ),
-                    border_radius=10,
+                    border_radius=14,
+                    bgcolor=C.surface_alt(),
+                    padding=6,
                 ),
                 ft.Container(height=20),
-                ft.ProgressRing(width=36, height=36, stroke_width=3, color="#DC2626"),
+                ft.ProgressRing(width=36, height=36, stroke_width=3, color=C.accent()),
                 ft.Container(height=12),
-                ft.Text("Initializing AyuTech Motors...", size=13, weight=ft.FontWeight.W_600, color="#4B5563"),
+                ft.Text("Initializing AyuTech Motors...", size=13, weight=ft.FontWeight.W_600, color=C.soft()),
             ],
             alignment=ft.MainAxisAlignment.CENTER,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -51,7 +67,7 @@ def main(page: ft.Page):
     page.title = "AyuTech Motors Limited"
     page.theme_mode = ft.ThemeMode.SYSTEM
     page.padding = 0
-    page.bgcolor = "#FFFFFF"
+    page.bgcolor = C.bg()
 
     # Set strict mobile window dimensions across Flet versions
     window = getattr(page, "window", None)
@@ -68,11 +84,11 @@ def main(page: ft.Page):
         page.window_min_height = 700
         page.window_resizable = True
 
-    content_area = ft.Container(expand=True, bgcolor="#FFFFFF")
+    content_area = ft.Container(expand=True, bgcolor=C.bg())
 
     def theme_surface(mode):
         dark = mode == "dark" or page.theme_mode == ft.ThemeMode.DARK
-        content_area.bgcolor = "#121212" if dark else "#FFFFFF"
+        content_area.bgcolor = C.bg()
         try:
             content_area.update()
         except Exception:
@@ -205,10 +221,11 @@ def main(page: ft.Page):
             expand=True,
             height=42,
             text_size=12,
-            border_color="#DC2626",
-            focused_border_color="#DC2626"
+            bgcolor=C.field(),
+            border_color=C.accent(),
+            focused_border_color=C.accent()
         )
-        send_button = ft.IconButton(icon=ft.icons.SEND, icon_color="#DC2626")
+        send_button = ft.IconButton(icon=ft.icons.SEND, icon_color=C.accent())
 
         def make_bubble(text: str, is_user: bool, suggested_products=None):
             if is_user:
@@ -216,7 +233,7 @@ def main(page: ft.Page):
                     alignment=ft.alignment.center_right,
                     content=ft.Container(
                         content=ft.Text(text, size=12, weight=ft.FontWeight.W_500, color="white"),
-                        bgcolor="#DC2626",
+                        bgcolor=C.grad_primary(),
                         padding=ft.padding.symmetric(horizontal=12, vertical=8),
                         border_radius=ft.border_radius.only(top_left=10, top_right=10, bottom_left=10, bottom_right=2)
                     )
@@ -224,10 +241,10 @@ def main(page: ft.Page):
             else:
                 card_items = [
                     ft.Row([
-                        ft.Icon(ft.icons.PRECISION_MANUFACTURING, size=14, color="#DC2626"),
-                        ft.Text("AyuTech Expert", size=11, weight=ft.FontWeight.BOLD, color="#121212")
+                        ft.Icon(ft.icons.PRECISION_MANUFACTURING, size=14, color=C.accent()),
+                        ft.Text("AyuTech Expert", size=11, weight=ft.FontWeight.BOLD, color=C.accent())
                     ], spacing=4),
-                    ft.Text(text, size=12, weight=ft.FontWeight.W_500, color="#111827", selectable=True)
+                    ft.Text(text, size=12, weight=ft.FontWeight.W_500, color=C.text(), selectable=True)
                 ]
 
                 if suggested_products:
@@ -244,19 +261,19 @@ def main(page: ft.Page):
                             ft.Container(
                                 margin=ft.margin.only(top=4),
                                 padding=ft.padding.symmetric(horizontal=8, vertical=6),
-                                bgcolor="white",
-                                border=ft.border.all(1, "#E5E7EB"),
-                                border_radius=6,
+                                bgcolor=C.surface(),
+                                border=ft.border.all(1, C.divider()),
+                                border_radius=8,
                                 content=ft.Row([
                                     ft.Column([
-                                        ft.Text(p_name[:24] + "..." if len(p_name) > 24 else p_name, size=10, weight=ft.FontWeight.BOLD, color="#111827"),
-                                        ft.Text(f"KES {p_price:,.0f}", size=10, color="#DC2626", weight=ft.FontWeight.W_600)
+                                        ft.Text(p_name[:24] + "..." if len(p_name) > 24 else p_name, size=10, weight=ft.FontWeight.BOLD, color=C.text()),
+                                        ft.Text(f"KES {p_price:,.0f}", size=10, color=C.accent(), weight=ft.FontWeight.W_600)
                                     ], spacing=1, expand=True),
                                     ft.ElevatedButton(
                                         "Add to Cart",
                                         icon=ft.icons.ADD_SHOPPING_CART,
                                         style=ft.ButtonStyle(
-                                            bgcolor="#DC2626",
+                                            bgcolor=C.accent(),
                                             color="white",
                                             padding=ft.padding.symmetric(horizontal=8, vertical=4),
                                         ),
@@ -270,8 +287,8 @@ def main(page: ft.Page):
                     alignment=ft.alignment.center_left,
                     content=ft.Container(
                         content=ft.Column(card_items, spacing=3),
-                        bgcolor="#F3F4F6",
-                        border=ft.border.all(1, "#E5E7EB"),
+                        bgcolor=C.surface_alt(),
+                        border=ft.border.all(1, C.divider()),
                         padding=ft.padding.symmetric(horizontal=12, vertical=8),
                         border_radius=ft.border_radius.only(top_left=10, top_right=10, bottom_left=2, bottom_right=10)
                     )
@@ -344,17 +361,21 @@ def main(page: ft.Page):
             content=ft.Container(
                 height=380,
                 padding=ft.padding.only(left=14, right=14, top=12, bottom=14),
-                bgcolor="white",
+                bgcolor=C.bg(),
                 content=ft.Column([
                     ft.Row([
                         ft.Row([
-                            ft.Icon(ft.icons.AUTO_AWESOME, color="#DC2626", size=18),
-                            ft.Text("Spare Parts AI Assistant", size=14, weight=ft.FontWeight.BOLD, color="#121212")
-                        ], spacing=6),
+                            ft.Container(
+                                width=30, height=30, border_radius=9, bgcolor=C.accent_soft(),
+                                alignment=ft.alignment.center,
+                                content=ft.Icon(ft.icons.AUTO_AWESOME, color=C.accent(), size=17),
+                            ),
+                            ft.Text("Spare Parts AI Assistant", size=14, weight=ft.FontWeight.BOLD, color=C.text())
+                        ], spacing=8),
                         ft.Row([
                             ft.IconButton(
                                 ft.icons.DELETE_OUTLINE,
-                                icon_color="#9CA3AF",
+                                icon_color=C.soft(),
                                 icon_size=18,
                                 tooltip="Clear Chat",
                                 on_click=lambda e: (
@@ -366,7 +387,7 @@ def main(page: ft.Page):
                             ),
                             ft.IconButton(
                                 ft.icons.CLOSE,
-                                icon_color="#9CA3AF",
+                                icon_color=C.soft(),
                                 icon_size=18,
                                 tooltip="Close Assistant",
                                 on_click=close_drawer
@@ -422,7 +443,9 @@ def main(page: ft.Page):
     bottom_nav_bar = ft.NavigationBar(
         bgcolor="transparent",
         selected_index=0,
-        indicator_color="#DC2626",
+        indicator_color=C.accent_soft(),
+        height=64,
+        label_text_style=ft.TextStyle(size=10, weight=ft.FontWeight.W_600),
         on_change=lambda e: switch_tab(int(e.data)),
         destinations=[
             ft.NavigationDestination(icon=ft.icons.HOME_OUTLINED, selected_icon=ft.icons.HOME, label="Home"),
@@ -437,10 +460,11 @@ def main(page: ft.Page):
         bottom=10,
         left=15,
         right=15,
+        shadow=C.card_shadow(),
         content=ft.Container(
-            bgcolor="#121212",
-            border_radius=25,
-            border=ft.border.all(2, "#DC2626"),
+            bgcolor=C.surface_raised(),
+            border_radius=26,
+            border=ft.border.all(1.5, C.accent()),
             padding=ft.padding.symmetric(horizontal=10, vertical=5),
             content=bottom_nav_bar
         )
@@ -448,14 +472,14 @@ def main(page: ft.Page):
 
     # --- Draggable AI Floating Button ---
     ai_button_ui = ft.Container(
-        width=52,
-        height=52,
-        bgcolor="#121212",
-        border_radius=26,
-        border=ft.border.all(2, "#DC2626"),
+        width=54,
+        height=54,
+        bgcolor=C.grad_primary(),
+        border_radius=27,
+        border=ft.border.all(2, "white"),
         alignment=ft.alignment.center,
-        content=ft.Icon(ft.icons.AUTO_AWESOME, color="#DC2626", size=24),
-        shadow=ft.BoxShadow(blur_radius=12, color="#60000000")
+        content=ft.Icon(ft.icons.AUTO_AWESOME, color="white", size=25),
+        shadow=ft.BoxShadow(blur_radius=14, spread_radius=1, color="#33C41E2E")
     )
 
     def on_ai_pan_update(e: ft.DragUpdateEvent):

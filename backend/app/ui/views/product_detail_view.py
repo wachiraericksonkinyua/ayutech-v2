@@ -25,10 +25,21 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
         fav_btn.icon_color = C.accent() if is_fav else C.text()
         page.update()
 
-    fav_btn = ft.IconButton(
-        icon=ft.icons.FAVORITE if is_fav else ft.icons.FAVORITE_BORDER,
-        icon_color=C.accent() if is_fav else C.text(),
-        on_click=toggle_fav
+    fav_btn = ft.Container(
+        width=42,
+        height=42,
+        bgcolor=C.surface(),
+        border_radius=22,
+        border=ft.border.all(1, C.divider()),
+        shadow=C.soft_shadow(),
+        alignment=ft.alignment.center,
+        content=ft.Icon(
+            ft.icons.FAVORITE if is_fav else ft.icons.FAVORITE_BORDER,
+            size=19,
+            color=C.accent() if is_fav else C.text(),
+        ),
+        tooltip="Save to wishlist",
+        on_click=toggle_fav,
     )
 
     img_url = product.get("image_url") or _fallback_img()
@@ -57,26 +68,27 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
     )
 
     image_preview = ft.Container(
-        height=220, border_radius=20, bgcolor=C.surface_alt(), alignment=ft.alignment.center,
-        padding=15, content=ft.Image(src=img_url, fit=ft.ImageFit.CONTAIN,
-                                     error_content=ft.Icon(ft.icons.CAR_REPAIR, size=48, color=C.muted()))
+        height=230, border_radius=22, bgcolor=C.surface_alt(), alignment=ft.alignment.center,
+        padding=15, shadow=C.soft_shadow(),
+        content=ft.Image(src=img_url, fit=ft.ImageFit.CONTAIN,
+                         error_content=ft.Icon(ft.icons.CAR_REPAIR, size=48, color=C.muted()))
     )
 
+    def _pill(icon, label, color):
+        return ft.Container(
+            expand=True, bgcolor=C.surface(), border_radius=12, padding=11,
+            shadow=C.soft_shadow(),
+            border=ft.border.all(1, C.divider()),
+            content=ft.Row([ft.Icon(icon, size=16, color=color), ft.Text(label, size=12, weight=ft.FontWeight.BOLD, color=C.text())], alignment=ft.MainAxisAlignment.CENTER)
+        )
+
     action_buttons = ft.Row([
+        ft.Container(expand=True, on_click=call_store, content=_pill(ft.icons.PHONE, "Call Shop", C.accent())),
+        ft.Container(expand=True, on_click=whatsapp_store, content=_pill(ft.icons.CHAT, "WhatsApp", C.success())),
         ft.Container(
-            expand=True, bgcolor=C.surface_alt(), border_radius=12, padding=10,
-            on_click=call_store,
-            content=ft.Row([ft.Icon(ft.icons.PHONE, size=16, color=C.accent()), ft.Text("Call Shop", size=12, weight=ft.FontWeight.BOLD, color=C.text())], alignment=ft.MainAxisAlignment.CENTER)
-        ),
-        ft.Container(
-            expand=True, bgcolor=C.surface_alt(), border_radius=12, padding=10,
-            on_click=whatsapp_store,
-            content=ft.Row([ft.Icon(ft.icons.CHAT, size=16, color="#25D366"), ft.Text("WhatsApp", size=12, weight=ft.FontWeight.BOLD, color=C.text())], alignment=ft.MainAxisAlignment.CENTER)
-        ),
-        ft.Container(
-            expand=True, bgcolor=C.surface_alt(), border_radius=12, padding=10,
+            expand=True,
             on_click=lambda e: ask_fitment_callback(product) if ask_fitment_callback else None,
-            content=ft.Row([ft.Icon(ft.icons.AUTO_AWESOME, size=16, color="#6366F1"), ft.Text("AI Fitment", size=12, weight=ft.FontWeight.BOLD, color=C.text())], alignment=ft.MainAxisAlignment.CENTER)
+            content=_pill(ft.icons.AUTO_AWESOME, "AI Fitment", "#6366F1"),
         )
     ], spacing=10)
 
@@ -212,8 +224,11 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
 
     details_content = ft.Column([
         ft.Container(
-            bgcolor=C.accent_soft(), border_radius=8, padding=ft.padding.symmetric(horizontal=8, vertical=4),
-            content=ft.Text(product.get("category", "Auto Part"), size=11, color=C.accent(), weight=ft.FontWeight.BOLD)
+            content=ft.Container(
+                padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                bgcolor=C.accent_soft(), border_radius=8,
+                content=ft.Text(product.get("category", "Auto Part"), size=11, color=C.accent(), weight=ft.FontWeight.BOLD)
+            )
         ),
         ft.Text(product["name"], size=18, weight=ft.FontWeight.BOLD, color=C.text()),
         action_buttons,
@@ -223,9 +238,9 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
         ft.Row([
             ft.Text("Quantity:", size=13, weight=ft.FontWeight.BOLD, color=C.text()),
             ft.Row([
-                ft.IconButton(ft.icons.REMOVE, icon_size=16, icon_color="white", bgcolor=C.text(), on_click=lambda e: update_qty(-1)),
+                ft.IconButton(ft.icons.REMOVE, icon_size=16, icon_color=C.text(), bgcolor=C.surface_alt(), on_click=lambda e: update_qty(-1)),
                 qty_val,
-                ft.IconButton(ft.icons.ADD, icon_size=16, icon_color="white", bgcolor=C.accent(), on_click=lambda e: update_qty(1)),
+                ft.IconButton(ft.icons.ADD, icon_size=16, icon_color="white", bgcolor=C.grad_primary(), on_click=lambda e: update_qty(1)),
             ], spacing=10)
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
         ft.Divider(color=C.divider()),
@@ -235,8 +250,12 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
         reviews_col,
         ft.OutlinedButton(
-            "Write a Review", icon=ft.icons.STAR_OUTLINE,
-            style=ft.ButtonStyle(color=C.accent()),
+            "Write a Review", icon=ft.icons.STAR_BORDER,
+            style=ft.ButtonStyle(
+                color=C.accent(),
+                side=ft.BorderSide(1.4, C.accent()),
+                shape=ft.RoundedRectangleBorder(radius=14),
+            ),
             on_click=open_review_dialog,
         ),
         ft.Container(height=10),
@@ -253,19 +272,25 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
             content=ft.Column([image_preview, details_content], scroll=ft.ScrollMode.AUTO, expand=True)
         ),
         ft.Container(
-            padding=15, bgcolor=C.surface(), border=ft.border.only(top=ft.BorderSide(1, C.divider())),
+            padding=ft.padding.symmetric(horizontal=15, vertical=12),
+            bgcolor=C.surface(),
+            border=ft.border.only(top=ft.BorderSide(1, C.divider())),
             content=ft.Row([
                 ft.Column([
                     ft.Text("Total Price", size=11, color=C.muted()),
                     ft.Text(f"KES {product['price']:,.0f}", size=18, weight=ft.FontWeight.BOLD, color=C.accent())
-                ]),
-                ft.ElevatedButton(
-                    "Add to Cart",
-                    icon=ft.icons.SHOPPING_BAG,
-                    bgcolor=C.text(), color=C.bg(), height=45, width=170,
-                    style=ft.ButtonStyle(),
-                    on_click=lambda e: add_to_cart_callback(product, int(qty_val.value or "1"))
+                ], spacing=0, tight=True),
+                ft.Container(
+                    expand=True, height=46,
+                    border_radius=14, shadow=C.soft_shadow(),
+                    bgcolor=C.grad_primary(),
+                    alignment=ft.alignment.center,
+                    on_click=lambda e: add_to_cart_callback(product, int(qty_val.value or "1")),
+                    content=ft.Row([
+                        ft.Icon(ft.icons.SHOPPING_BAG, size=17, color="white"),
+                        ft.Text("Add to Cart", size=13, weight=ft.FontWeight.BOLD, color="white"),
+                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=7),
                 )
-            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+            ], spacing=14)
         )
     ], expand=True)

@@ -550,7 +550,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                     ft.Row([
                         addresses_input,
                         ft.Container(
-                            bgcolor='#DC2626', border_radius=10,
+                            bgcolor=C.accent(), border_radius=10,
                             alignment=ft.alignment.center,
                             content=ft.IconButton(ft.icons.ADD, icon_color='white', tooltip='Save address', on_click=add_address),
                         ),
@@ -558,8 +558,8 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                     ft.Text('Used at checkout for delivery orders.', size=11, color=C.soft()),
                     ft.Container(height=6),
                     ft.ElevatedButton(
-                        'Save Changes', width=380, height=45, bgcolor='#DC2626', color='white',
-                        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
+                        'Save Changes', width=380, height=46, bgcolor=C.accent(), color='white',
+                        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=14)),
                         on_click=save_profile,
                     ),
                 ], spacing=8, tight=True, scroll=ft.ScrollMode.AUTO),
@@ -677,31 +677,36 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
   logged_in_email = current_logged_in_user.get('email', 'Customer')
 
   profile_header = ft.Container(
-      bgcolor=C.text(),
-      border_radius=ft.border_radius.only(bottom_left=24, bottom_right=24),
+      bgcolor=C.grad_deep(),
+      border_radius=ft.border_radius.only(bottom_left=26, bottom_right=26),
       padding=20,
+      shadow=C.card_shadow(),
       content=ft.Column([
           ft.Row([
-              ft.Text(
-                  'My Garage Hub',
-                  size=15,
-                  weight=ft.FontWeight.BOLD,
-                  color='white',
-              ),
+              ft.Row([
+                  ft.Icon(ft.icons.GARAGE_OUTLINED, color=C.accent(), size=18),
+                  ft.Text(
+                      'My Garage Hub',
+                      size=15,
+                      weight=ft.FontWeight.BOLD,
+                      color='white',
+                  ),
+              ], spacing=6),
               ft.Row([
                   ft.IconButton(
                       icon=ft.icons.SETTINGS_OUTLINED,
-                      icon_color=C.muted(),
+                      icon_color='#B6AEA4',
+                      bgcolor='#18FFFFFF',
                       tooltip='Profile Settings',
                       on_click=lambda e: open_settings(),
                   ),
                   ft.IconButton(
                       icon=ft.icons.LOGOUT,
-                      icon_color='#DC2626',
+                      icon_color=C.accent(),
                       tooltip='Sign Out',
                       on_click=handle_logout,
                   ),
-              ], spacing=0),
+              ], spacing=6),
           ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
           ft.GestureDetector(
               on_tap=lambda e: open_settings(),
@@ -710,7 +715,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                       width=56,
                       height=56,
                       border_radius=28,
-                      bgcolor='#DC2626',
+                      bgcolor=C.grad_primary(),
                       alignment=ft.alignment.center,
                       border=ft.border.all(2, 'white'),
                       content=ft.Text(
@@ -727,7 +732,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                           weight=ft.FontWeight.BOLD,
                           color='white',
                       ),
-                      ft.Text(logged_in_email, size=11, color=C.muted()),
+                      ft.Text(logged_in_email, size=11, color='#B6AEA4'),
                   ], spacing=2),
               ], spacing=14),
           ),
@@ -737,19 +742,21 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
   def hub_tile(title, subtitle, icon, badge, on_click):
     return ft.Container(
         bgcolor=C.surface(),
-        border_radius=12,
+        border_radius=16,
         padding=12,
         border=ft.border.all(1, C.divider()),
+        shadow=C.soft_shadow(),
         on_click=on_click,
         content=ft.Row([
             ft.Row([
                 ft.Container(
-                    width=36,
-                    height=36,
+                    width=38,
+                    height=38,
                     bgcolor=C.accent_soft(),
-                    border_radius=10,
+                    border_radius=12,
+                    shadow=C.soft_shadow(),
                     alignment=ft.alignment.center,
-                    content=ft.Icon(icon, color='#DC2626', size=18),
+                    content=ft.Icon(icon, color=C.accent(), size=19),
                 ),
                 ft.Column([
                     ft.Text(
@@ -763,20 +770,20 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
             ], spacing=12),
             ft.Row([
                 ft.Container(
-                    bgcolor='#E5E7EB',
-                    padding=ft.padding.symmetric(horizontal=8, vertical=3),
-                    border_radius=6,
+                    bgcolor=C.accent_soft(),
+                    padding=ft.padding.symmetric(horizontal=9, vertical=4),
+                    border_radius=20,
                     content=ft.Text(
                         badge,
                         size=10,
                         weight=ft.FontWeight.BOLD,
-                        color=C.text(),
+                        color=C.accent(),
                     ),
                 )
                 if badge
                 else ft.Container(),
                 ft.Icon(
-                    ft.icons.ARROW_FORWARD_IOS, size=14, color=C.muted()
+                    ft.icons.ARROW_FORWARD_IOS, size=14, color=C.soft()
                 ),
             ], spacing=6),
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
