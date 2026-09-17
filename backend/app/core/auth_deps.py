@@ -87,3 +87,13 @@ def require_admin(
         "name": payload.get("name"),
         "role": payload.get("role", "staff"),
     }
+
+
+def require_super_admin(current_staff: dict = Depends(require_admin)):
+    """Only staff with the 'admin' role may manage other staff accounts."""
+    if str(current_staff.get("role", "")).lower() != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrator privileges required.",
+        )
+    return current_staff

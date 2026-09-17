@@ -18,6 +18,24 @@ class AuthPayload(BaseModel):
     password: str = Field(min_length=6, max_length=128)
 
 
+class ForgotPasswordPayload(BaseModel):
+    email: EmailStr
+
+
+class OAuthUrlPayload(BaseModel):
+    provider: str = "google"
+    redirect_to: str = ""
+
+
+class OAuthExchangePayload(BaseModel):
+    code: str
+    code_verifier: str = ""
+    redirect_to: str = ""
+
+
+SUPPORTED_OAUTH_PROVIDERS = {"google", "apple", "facebook", "github"}
+
+
 class ProfileUpdate(BaseModel):
     username: str = Field(default="", max_length=50)
     full_name: str = Field(default="", max_length=120)
@@ -63,6 +81,84 @@ def login_user(request: Request, payload: AuthPayload):
         raise
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid email or password.")
+
+
+@router.post("/forgot-password")
+@limiter.limit("5/minute")
+def forgot_password(request: Request, payload: ForgotPasswordPayload):
+    """Send a password reset link. Always returns success (no email enumeration)."""
+    try:
+        supabase.auth.reset_password_email(payload.email)
+    except Exception as e:
+        print(f"Password reset warning: {e}")
+    return {
+        "status": "success",
+        "message": "If that email is registered, a reset link has been sent.",
+    }
+
+
+@router.post("/oauth-url")
+def oauth_url(payload: OAuthUrlPayload):
+    """Return the provider sign-in URL plus the PKCE verifier for the callback."""
+    provider = (payload.provider or "google").lower()
+    if provider not in SUPPORTED_OAUTH_PROVIDERS:
+        raise HTTPException(status_code=400, detail="Unsupported sign-in provider.")
+    options = {}
+    if payload.redirect_to:
+        options["redirect_to"] = payload.redirect_to
+    try:
+        res = supabase.auth.sign_in_with_oauth({"provider": provider, "options": options})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not start sign-in: {e}")
+
+    verifier = ""
+    try:
+        verifier = supabase.auth._storage.get_item(
+            f"{supabase.auth._storage_key}-code-verifier"
+        ) or ""
+    except Exception:
+        verifier = ""
+    return {"status": "success", "url": res.url, "code_verifier": verifier}
+
+
+@router.post("/oauth-exchange")
+def oauth_exchange(payload: OAuthExchangePayload):
+    """Exchange the OAuth callback code for a session."""
+    params = {"auth_code": payload.code}
+    if payload.code_verifier:
+        params["code_verifier"] = payload.code_verifier
+    if payload.redirect_to:
+        params["redirect_to"] = payload.redirect_to
+    try:
+        res = supabase.auth.exchange_code_for_session(params)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Sign-in failed: {e}")
+
+    user_obj = getattr(res, "user", None) or (res.get("user") if isinstance(res, dict) else None)
+    session = getattr(res, "session", None) or (res.get("session") if isinstance(res, dict) else None)
+    if user_obj is None:
+        raise HTTPException(status_code=400, detail="Sign-in failed: no user returned.")
+
+    user_id = user_obj.id if hasattr(user_obj, "id") else user_obj.get("id")
+    email = user_obj.email if hasattr(user_obj, "email") else user_obj.get("email")
+    access_token = ""
+    if session is not None:
+        access_token = session.access_token if hasattr(session, "access_token") else session.get("access_token", "")
+
+    # Mirror the user into the customers table so profile/orders work
+    try:
+        supabase.table("customers").upsert({
+            "id": str(user_id),
+            "email": email,
+        }).execute()
+    except Exception as db_err:
+        print(f"OAuth customer mirror warning: {db_err}")
+
+    return {
+        "status": "success",
+        "access_token": access_token,
+        "user": {"id": str(user_id), "email": email},
+    }
 
 
 @router.get("/profile")

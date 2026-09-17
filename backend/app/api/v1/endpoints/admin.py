@@ -1,21 +1,34 @@
 # backend/app/api/v1/endpoints/admin.py
 
 from fastapi import APIRouter, HTTPException, Request, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List
 from datetime import datetime
 import urllib.parse
 import httpx
-from app.db.supabase_client import supabase
+from app.db.supabase_client import supabase, supabase_admin
 from app.core.cache import product_cache
-from app.core.auth_deps import require_admin
+from app.core.auth_deps import require_admin, require_super_admin
 from app.core.rate_limiter import limiter
 from app.core.security import create_admin_token
 
 router = APIRouter()
 
-# Every route in this router requires a staff token EXCEPT pin-login.
+# Every route in this router requires a staff token EXCEPT the login routes.
 _admin_guard = [Depends(require_admin)]
+
+
+class StaffLoginPayload(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=128)
+
+
+class StaffCreatePayload(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=6, max_length=128)
+    name: str = Field(min_length=1, max_length=80)
+    role: str = "staff"
+    phone: str = Field(default="", max_length=20)
 
 def _ensure_list(v):
     return v if isinstance(v, list) else []
@@ -243,7 +256,7 @@ async def pin_login(request: Request, payload: dict):
         core_digits = clean_digits
 
     try:
-        res = supabase.table("staff_users").select("*").execute()
+        res = supabase_admin.table("staff_users").select("*").execute()
         users = getattr(res, "data", []) or []
         for u in users:
             u_pin = str(u.get("pin_code", "")).strip()
@@ -265,8 +278,147 @@ async def pin_login(request: Request, payload: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/refills", dependencies=_admin_guard)
-async def create_refill_request(payload: dict):
+
+def _find_staff_for_user(user_id: str, email: str):
+    """Look up the staff_users row linked to an auth user (by id, then email)."""
+    try:
+        res = supabase_admin.table("staff_users").select("*").eq(
+            "auth_user_id", str(user_id)
+        ).limit(1).execute()
+        rows = getattr(res, "data", None) or []
+        if rows:
+            return rows[0]
+    except Exception:
+        pass
+    try:
+        res2 = supabase_admin.table("staff_users").select("*").ilike(
+            "email", email
+        ).limit(1).execute()
+        rows2 = getattr(res2, "data", None) or []
+        if rows2:
+            return rows2[0]
+    except Exception:
+        pass
+    return None
+
+
+@router.post("/auth/login")
+@limiter.limit("10/minute")
+async def staff_login(request: Request, payload: StaffLoginPayload):
+    """Email + password login for staff (Supabase Auth), issues a staff token."""
+    try:
+        res = supabase.auth.sign_in_with_password({
+            "email": payload.email,
+            "password": payload.password,
+        })
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+
+    user_obj = getattr(res, "user", None) or (res.get("user") if isinstance(res, dict) else None)
+    if user_obj is None:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+
+    user_id = user_obj.id if hasattr(user_obj, "id") else user_obj.get("id")
+    staff = _find_staff_for_user(str(user_id), payload.email)
+    if not staff:
+        raise HTTPException(status_code=403, detail="This account is not a staff account.")
+    if not staff.get("active", True):
+        raise HTTPException(status_code=403, detail="This staff account is disabled.")
+
+    safe_staff = {k: v for k, v in staff.items() if k != "pin_code"}
+    token = create_admin_token({
+        "sub": str(staff.get("id", "")),
+        "name": staff.get("name", "Staff"),
+        "role": staff.get("role", "staff"),
+    })
+    return {"status": "success", "access_token": token, "user": safe_staff}
+
+
+@router.get("/staff", dependencies=[Depends(require_super_admin)])
+async def list_staff():
+    try:
+        res = supabase_admin.table("staff_users").select(
+            "id, auth_user_id, email, name, role, phone, active"
+        ).order("name").execute()
+        return {"staff": getattr(res, "data", None) or []}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/staff", status_code=201, dependencies=[Depends(require_super_admin)])
+async def create_staff(payload: StaffCreatePayload):
+    """Create a Supabase Auth user and link a staff_users record."""
+    # 1) Create the auth login
+    try:
+        created = supabase_admin.auth.admin.create_user({
+            "email": payload.email,
+            "password": payload.password,
+            "email_confirm": True,
+        })
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not create login: {e}")
+
+    new_user = getattr(created, "user", None) or (created.get("user") if isinstance(created, dict) else None)
+    auth_user_id = None
+    if new_user is not None:
+        auth_user_id = new_user.id if hasattr(new_user, "id") else new_user.get("id")
+
+    # 2) Link the staff record
+    try:
+        ins = supabase_admin.table("staff_users").insert({
+            "auth_user_id": str(auth_user_id) if auth_user_id else None,
+            "email": payload.email,
+            "name": payload.name,
+            "role": payload.role or "staff",
+            "phone": payload.phone,
+            "active": True,
+        }).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Login created but staff record failed: {e}")
+
+    rows = getattr(ins, "data", None) or []
+    return {"status": "success", "staff": rows[0] if rows else None}
+
+
+@router.patch("/staff/{staff_id}", dependencies=[Depends(require_super_admin)])
+async def update_staff(staff_id: str, payload: dict):
+    allowed = {
+        k: payload[k] for k in ("name", "role", "phone", "active")
+        if k in payload
+    }
+    if not allowed:
+        raise HTTPException(status_code=400, detail="Nothing to update.")
+    try:
+        res = supabase_admin.table("staff_users").update(allowed).eq("id", staff_id).execute()
+        rows = getattr(res, "data", None) or []
+        return {"status": "success", "staff": rows[0] if rows else allowed}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/staff/{staff_id}", dependencies=[Depends(require_super_admin)])
+async def delete_staff(staff_id: str):
+    try:
+        sr = supabase_admin.table("staff_users").select("auth_user_id").eq("id", staff_id).limit(1).execute()
+        rows = getattr(sr, "data", None) or []
+        auth_id = rows[0].get("auth_user_id") if rows else None
+    except Exception:
+        auth_id = None
+
+    try:
+        supabase_admin.table("staff_users").delete().eq("id", staff_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if auth_id:
+        try:
+            supabase_admin.auth.admin.delete_user(auth_id)
+        except Exception as e:
+            print(f"Auth user delete warning: {e}")
+
+    return {"status": "success"}
+
+
     try:
         clean_payload = {
             "product_id": str(payload.get("product_id", "")),

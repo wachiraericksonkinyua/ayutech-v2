@@ -164,6 +164,98 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
     profile_page_mode = 'track'
     switch_tab_callback(4)
 
+  def handle_forgot_password(e):
+    reset_email = ft.TextField(
+        label='Your account email',
+        hint_text='you@example.com',
+        border_color=C.accent(),
+        focused_border_color=C.accent(),
+        bgcolor=C.field(),
+        height=45,
+        text_size=13,
+        keyboard_type=ft.KeyboardType.EMAIL,
+    )
+
+    def send_reset(ev):
+      val = (reset_email.value or '').strip()
+      if not val:
+        show_top_notification(page, '⚠️ Please enter your email.', '#DC2626')
+        return
+      try:
+        httpx.post(f'{API_BASE_URL}/auth/forgot-password', json={'email': val}, timeout=15)
+        dlg.open = False
+        page.update()
+        notify(page, 'If that email is registered, a reset link has been sent.', '#16A34A', title='Check your email')
+      except Exception as err:
+        show_top_notification(page, f'Error: {err}', '#DC2626')
+
+    dlg = ft.AlertDialog(
+        title=ft.Text('Reset Password', weight=ft.FontWeight.BOLD, size=16),
+        content=ft.Column([
+            ft.Text('We will email you a link to set a new password.', size=12, color=C.soft()),
+            reset_email,
+        ], spacing=10, tight=True, width=280),
+        actions=[
+            ft.TextButton('Cancel', on_click=lambda ev: (setattr(dlg, 'open', False), page.update())),
+            ft.ElevatedButton('Send link', bgcolor=C.accent(), color='white', on_click=send_reset),
+        ],
+    )
+    page.dialog = dlg
+    dlg.open = True
+    page.update()
+
+  def handle_google_login(e):
+    import threading
+    import app.ui.oauth as oauth
+
+    server = oauth.OAuthCallbackServer()
+    try:
+      server.start()
+    except Exception as err:
+      show_top_notification(page, f'Could not start sign-in listener: {err}', '#DC2626')
+      return
+
+    def _run():
+      try:
+        res = httpx.post(
+            f'{API_BASE_URL}/auth/oauth-url',
+            json={'provider': 'google', 'redirect_to': oauth.REDIRECT_URI},
+            timeout=15,
+        )
+        data = res.json() if res.content else {}
+        url = data.get('url', '')
+        verifier = data.get('code_verifier', '')
+        if not url:
+          show_top_notification(page, 'Could not start Google sign-in.', '#DC2626')
+          return
+        try:
+          page.launch_url(url)
+        except Exception:
+          pass
+        params = server.wait(timeout=180)
+        if not params or not params.get('code'):
+          show_top_notification(page, 'Google sign-in was cancelled or timed out.', '#DC2626')
+          return
+        code = params['code'][0]
+        ex = httpx.post(
+            f'{API_BASE_URL}/auth/oauth-exchange',
+            json={'code': code, 'code_verifier': verifier, 'redirect_to': oauth.REDIRECT_URI},
+            timeout=25,
+        )
+        exd = ex.json() if ex.content else {}
+        if ex.status_code == 200:
+          app_state.access_token = exd.get('access_token', '') or ''
+          handle_login_success(exd.get('user'))
+        else:
+          show_top_notification(page, exd.get('detail', 'Google sign-in failed.'), '#DC2626')
+      except Exception as err:
+        show_top_notification(page, f'Google sign-in error: {err}', '#DC2626')
+      finally:
+        server.stop()
+
+    show_top_notification(page, 'Complete sign-in in your browser…', '#2563EB')
+    threading.Thread(target=_run, daemon=True).start()
+
   if not current_logged_in_user:
     if profile_page_mode == 'track':
       return build_track_page(page, reset_to_hub_guest)
@@ -212,6 +304,30 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                     action_btn,
                     ft.Container(
                         alignment=ft.alignment.center, content=switch_btn
+                    ),
+                    ft.Container(
+                        alignment=ft.alignment.center,
+                        content=ft.TextButton(
+                            'Forgot password?',
+                            style=ft.ButtonStyle(color=C.soft()),
+                            on_click=handle_forgot_password,
+                        ),
+                    ),
+                    ft.Row([
+                        ft.Divider(color=C.divider(), expand=True),
+                        ft.Text('or', size=11, color=C.muted()),
+                        ft.Divider(color=C.divider(), expand=True),
+                    ], spacing=8),
+                    ft.OutlinedButton(
+                        'Continue with Google',
+                        icon=ft.icons.LOGIN,
+                        width=316,
+                        height=44,
+                        style=ft.ButtonStyle(
+                            color=C.text(),
+                            shape=ft.RoundedRectangleBorder(radius=10),
+                        ),
+                        on_click=handle_google_login,
                     ),
                     ft.Divider(color=C.divider(), height=12),
                     ft.TextButton(

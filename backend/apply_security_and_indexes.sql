@@ -19,7 +19,7 @@ ALTER TABLE public.customers
 ALTER TABLE public.orders
   ADD COLUMN IF NOT EXISTS delivery_address TEXT DEFAULT '';
 
--- 3) STAFF USERS (PIN login for the POS / admin dashboard) --------------------
+-- 3) STAFF USERS (login for the POS / admin dashboard) ------------------------
 -- If this table already exists, this is a no-op. The backend reads
 -- id, name, role, phone, pin_code from it.
 CREATE TABLE IF NOT EXISTS public.staff_users (
@@ -27,9 +27,27 @@ CREATE TABLE IF NOT EXISTS public.staff_users (
   name       TEXT NOT NULL,
   role       TEXT NOT NULL DEFAULT 'staff',
   phone      TEXT,
-  pin_code   TEXT NOT NULL,
+  pin_code   TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- 3b) Link staff to Supabase Auth (email + password login) --------------------
+ALTER TABLE public.staff_users
+  ADD COLUMN IF NOT EXISTS auth_user_id UUID,
+  ADD COLUMN IF NOT EXISTS email        TEXT,
+  ADD COLUMN IF NOT EXISTS active       BOOLEAN NOT NULL DEFAULT TRUE;
+
+-- Legacy PIN logins may have been required; new email/password staff do not.
+ALTER TABLE public.staff_users
+  ALTER COLUMN pin_code DROP NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_staff_auth_user
+  ON public.staff_users (auth_user_id)
+  WHERE auth_user_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_staff_email
+  ON public.staff_users (lower(email))
+  WHERE email IS NOT NULL;
 
 -- 4) PERFORMANCE INDEXES (speed up orders / profile / catalog lookups) --------
 CREATE INDEX IF NOT EXISTS idx_orders_customer_id
