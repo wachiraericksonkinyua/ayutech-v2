@@ -4,6 +4,7 @@ import flet as ft
 import httpx
 import datetime
 from app.ui.state import cart, my_orders, API_BASE_URL, current_user_id
+from app.ui.notifications import show_top_notification
 
 def format_phone_number(raw: str) -> str:
     cleaned = "".join(filter(str.isdigit, raw))
@@ -207,12 +208,7 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
         import app.ui.views.profile_view as profile_mod
         is_logged_in = profile_mod.current_logged_in_user is not None or bool(current_user_id)
         if not is_logged_in:
-            page.snack_bar = ft.SnackBar(
-                ft.Text("🔒 Please sign in or create an account to check out."),
-                bgcolor="#DC2626"
-            )
-            page.snack_bar.open = True
-            page.update()
+            show_top_notification(page, "🔒 Please sign in or create an account to check out.", "#DC2626", ft.icons.LOCK)
             if switch_tab_callback is not None:
                 switch_tab_callback(4)
             return
@@ -221,12 +217,7 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
         formatted_phone = format_phone_number(raw_phone)
 
         if selected_payment == "mpesa" and (len(formatted_phone) != 12 or not formatted_phone.startswith("254")):
-            page.snack_bar = ft.SnackBar(
-                ft.Text("⚠️ Enter a valid Kenyan number (e.g. 0712345678 or 0112345678)"),
-                bgcolor="#DC2626"
-            )
-            page.snack_bar.open = True
-            page.update()
+            show_top_notification(page, "⚠️ Enter a valid Kenyan number (e.g. 0712345678 or 0112345678)", "#DC2626", ft.icons.ERROR_OUTLINE)
             return
 
         checkout_btn.disabled = True
@@ -277,11 +268,7 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
                 
                 my_orders.insert(0, new_order)
                 cart.clear()
-                page.snack_bar = ft.SnackBar(
-                    ft.Text("📲 STK Prompt sent! Enter M-Pesa PIN on your phone."),
-                    bgcolor="#25D366"
-                )
-                page.snack_bar.open = True
+                show_top_notification(page, "📲 STK Prompt sent! Enter M-Pesa PIN on your phone.", "#25D366", ft.icons.PHONE_ANDROID)
                 change_qty_callback("dummy", 0)
             else:
                 raise Exception(f"Backend returned {res.status_code}")
@@ -298,11 +285,7 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
             }
             my_orders.insert(0, new_order)
             cart.clear()
-            page.snack_bar = ft.SnackBar(
-                ft.Text("✅ Order recorded! View details in Orders tab."),
-                bgcolor="#25D366"
-            )
-            page.snack_bar.open = True
+            show_top_notification(page, "✅ Order recorded! View details in Orders tab.", "#25D366", ft.icons.CHECK_CIRCLE)
             change_qty_callback("dummy", 0)
 
     checkout_btn = ft.ElevatedButton(

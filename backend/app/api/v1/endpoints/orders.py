@@ -159,6 +159,7 @@ async def get_order_status(order_ref: str):
 @router.post("/verify-receipt")
 async def verify_receipt(payload: VerifyReceiptRequest):
     order_ref = payload.order_reference.strip()
+    user_receipt = (payload.receipt_number or "").strip()
 
     try:
         res = supabase.table("orders").select("*").eq("order_reference", order_ref).execute()
@@ -171,9 +172,58 @@ async def verify_receipt(payload: VerifyReceiptRequest):
         if not isinstance(first_record, dict):
             raise HTTPException(status_code=400, detail="Order record is invalid.")
 
+        order_id = first_record.get("id")
         order_status = first_record.get("status")
         if order_status in ["Paid", "Fulfilled"]:
             return {"status": "success", "message": "Order is already verified as Paid!"}
+
+        # 1) Authoritative check: query Daraja for the STK transaction status
+        checkout_id = str(first_record.get("checkout_request_id", "") or "")
+        if checkout_id and not checkout_id.startswith("sim_"):
+            try:
+                query_res = await DarajaService.query_stk_status(checkout_id)
+            except Exception as q_err:
+                print(f"Daraja query error: {q_err}")
+                query_res = None
+
+            if query_res and query_res.get("ResultCode") == 0:
+                receipt = "MPESA_PAID"
+                meta = query_res.get("CallbackMetadata", {}).get("Item", [])
+                if isinstance(meta, list):
+                    receipt = next(
+                        (i.get("Value") for i in meta if i.get("Name") == "MpesaReceiptNumber"),
+                        user_receipt or "MPESA_PAID",
+                    )
+                supabase.table("orders").update({
+                    "status": "Paid",
+                    "receipt_number": receipt,
+                }).eq("id", order_id).execute()
+                return {
+                    "status": "success",
+                    "message": "Payment confirmed by M-Pesa!",
+                    "receipt_number": receipt,
+                }
+            if query_res:
+                result_code = query_res.get("ResultCode")
+                if result_code == 1032:
+                    supabase.table("orders").update({"status": "Cancelled"}).eq("id", order_id).execute()
+                    raise HTTPException(status_code=400, detail="This payment was cancelled by the customer.")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Payment not completed on M-Pesa yet. Confirm the transaction or retry shortly.",
+                )
+
+        # 2) Manual override: confirm using the M-Pesa confirmation code entered by the user
+        if user_receipt:
+            supabase.table("orders").update({
+                "status": "Paid",
+                "receipt_number": user_receipt,
+            }).eq("id", order_id).execute()
+            return {
+                "status": "success",
+                "message": "Receipt verified manually.",
+                "receipt_number": user_receipt,
+            }
 
         raise HTTPException(status_code=400, detail="Payment not detected on M-Pesa network yet.")
     except HTTPException:

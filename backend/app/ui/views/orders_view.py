@@ -6,6 +6,7 @@ import time
 import flet as ft
 import httpx
 from app.ui.state import API_BASE_URL, current_user_id, my_orders
+from app.ui.notifications import show_top_notification
 
 
 def build_orders_view(page: ft.Page):
@@ -49,19 +50,12 @@ def build_orders_view(page: ft.Page):
         )
         data = res.json()
         if res.status_code == 200:
-          page.snack_bar = ft.SnackBar(
-              ft.Text('✅ Order successfully verified!'), bgcolor='#16A34A'
-          )
-          page.snack_bar.open = True
+          show_top_notification(page, '✅ Order successfully verified!', '#16A34A')
           close_dialog(receipt_dialog)
           sync_orders_status()
           render_orders()
         else:
-          page.snack_bar = ft.SnackBar(
-              ft.Text(data.get('detail', 'Invalid receipt code.')),
-              bgcolor='#DC2626',
-          )
-          page.snack_bar.open = True
+          show_top_notification(page, data.get('detail', 'Invalid receipt code.'), '#DC2626')
         page.update()
       except Exception as err:
         print(f'Manual code entry error: {err}')
@@ -298,13 +292,10 @@ def build_orders_view(page: ft.Page):
             if new_receipt:
               ord['receipt_number'] = new_receipt
 
-        page.snack_bar = ft.SnackBar(
-            ft.Text(f'Status checked: {new_status}'),
-            bgcolor='#25D366'
-            if new_status in ['Paid', 'Processing']
-            else '#DC2626',
+        show_top_notification(
+            page, f'Status checked: {new_status}',
+            '#25D366' if new_status in ['Paid', 'Processing'] else '#DC2626',
         )
-        page.snack_bar.open = True
         render_orders()
         page.update()
       else:
@@ -312,11 +303,7 @@ def build_orders_view(page: ft.Page):
           detail = res.json().get('detail', f'Status lookup failed ({res.status_code}).')
         except Exception:
           detail = f'Status lookup failed ({res.status_code}).'
-        page.snack_bar = ft.SnackBar(
-            ft.Text(f'⚠️ {detail}'),
-            bgcolor='#DC2626',
-        )
-        page.snack_bar.open = True
+        show_top_notification(page, f'⚠️ {detail}', '#DC2626')
         page.update()
     except Exception as err:
       print(f'Manual verification error: {err}')

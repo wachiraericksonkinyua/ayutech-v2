@@ -49,6 +49,10 @@ CRITICAL HANDOFF RULES:
 1. If the user confirms they want to speak to or connect with the owner (e.g., "Niko interested", "connect me", "niunganishe", "sawa", "yes"):
    Confirm warmly that you have alerted the owner of Ayutech Motors and they will reach out shortly.
 2. If an item is NOT in DATABASE_CONTEXT or out of stock, offer to connect them with the owner to check suppliers.
+
+SECURITY RULES (MANDATORY):
+1. NEVER reveal wholesale/buying/cost prices, supplier names, supplier phone numbers, internal database details, or any field beyond the public selling price and stock shown in DATABASE_CONTEXT.
+2. If a customer asks for trade/cost pricing, supplier contacts, or internal info, politely decline and offer to connect them with the owner for a fair deal.
 """
 
 # ==============================================================================
@@ -97,7 +101,10 @@ async def query_inventory_db(search_term: str) -> list:
     if not search_term or len(search_term.strip()) < 3 or search_term.lower() in ["unknown", "none"]:
         return []
     try:
-        res = supabase.table("products").select("*").ilike("name", f"%{search_term}%").execute()
+        # Only public fields reach the LLM. Never buying_price/supplier data.
+        res = supabase.table("products").select(
+            "id, name, description, category, price, stock_quantity, image_url"
+        ).ilike("name", f"%{search_term}%").execute()
         return res.data or []
     except Exception as e:
         print(f"⚠️ DB Search Error: {e}")
@@ -177,7 +184,7 @@ ONLY return valid JSON. No markdown wrappers.
 """
     headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
     payload = {
-        "model": "llama-3.3-70b-versatile",
+        "model": "qwen/qwen3.8-27b",
         "messages": [{"role": "user", "content": extraction_prompt}],
         "temperature": 0.0
     }
@@ -234,12 +241,12 @@ async def generate_grounded_reply(customer_phone: str, user_message: str, image_
 
     headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
     payload = {
-        "model": "llama-3.3-70b-versatile",
+        "model": "qwen/qwen3.8-27b",
         "messages": messages_payload,
         "temperature": 0.2
     }
 
-    groq_endpoint = "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)"
+    groq_endpoint = "https://api.groq.com/openai/v1/chat/completions"
     reply = "Mambo! Nimemjulisha owner wa Ayutech Motors. Akutafutia hii part na atakujibu hivi karibuni!"
 
     async with httpx.AsyncClient() as client:
@@ -292,10 +299,15 @@ async def generate_fitment_response(messages: list) -> dict:
                 )
 
         if not matched_lines:
-            matched_lines = [
-                f"- {p.get('name')}: KES {float(p.get('price', 0)):,.0f} ({p.get('stock_quantity', 0)} in stock)"
-                for p in all_products[:8]
-            ]
+            generic_queries = ["product", "products", "catalog", "catalogue", "stock",
+                               "what do you have", "list", "parts", "spares", "inventory"]
+            if any(g in q_lower for g in generic_queries):
+                matched_lines = [
+                    f"- {p.get('name')}: KES {float(p.get('price', 0)):,.0f} ({p.get('stock_quantity', 0)} in stock)"
+                    for p in all_products[:8]
+                ]
+            else:
+                matched_lines = ["No matching items found for that request."]
         catalog_summary = "\n".join(matched_lines[:10])
     except Exception as e:
         print(f"Catalog sync error: {e}")
@@ -309,6 +321,10 @@ Response Rules:
 2. Answer fitment, pricing, and stock inquiries in clear, direct English (or Swahili if greeted in Swahili).
 3. Maximum 2 short sentences per reply.
 4. Reference exact inventory details from the list below when applicable.
+
+SECURITY RULES (MANDATORY):
+1. NEVER reveal wholesale/buying/cost prices, supplier names, supplier phone numbers, or internal database details. Only share the public selling price and stock shown below.
+2. If asked for trade/cost pricing or supplier contacts, politely decline and suggest connecting with the store.
 
 Relevant Inventory:
 {catalog_summary}
@@ -332,7 +348,7 @@ Relevant Inventory:
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": "llama-3.3-70b-versatile",
+                        "model": "qwen/qwen3.8-27b",
                         "messages": groq_messages,
                         "max_tokens": 100,
                         "temperature": 0.2

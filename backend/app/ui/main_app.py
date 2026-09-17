@@ -5,6 +5,7 @@ import httpx
 import time
 from typing import cast
 from app.ui.state import all_products, cart, wishlist, API_BASE_URL
+from app.ui.notifications import show_top_notification
 from app.ui.views.home_view import build_home_view
 from app.ui.views.browse_view import build_browse_view
 from app.ui.views.cart_view import build_cart_view
@@ -145,6 +146,8 @@ def main(page: ft.Page):
                 "qty": qty,
                 "image": p.get("image_url", "")
             }
+        if qty > 0:
+            show_top_notification(page, f"Added to cart: {p.get('name', 'Item')}", "#16A34A", ft.icons.ADD_SHOPPING_CART)
         page.update()
 
     def update_wishlist(p):
@@ -219,12 +222,6 @@ def main(page: ft.Page):
                         def make_add_handler(prod_to_add):
                             def handle_add(evt):
                                 update_cart(prod_to_add, 1)
-                                page_ref.snack_bar = ft.SnackBar(
-                                    content=ft.Text(f"Added {prod_to_add.get('name')} to cart!"),
-                                    bgcolor="#16A34A"
-                                )
-                                page_ref.snack_bar.open = True
-                                page_ref.update()
                             return handle_add
 
                         card_items.append(
@@ -375,12 +372,7 @@ def main(page: ft.Page):
         is_logged_in = profile_mod.current_logged_in_user is not None or bool(current_user_id)
 
         if idx in [2, 3] and not is_logged_in:
-            page.snack_bar = ft.SnackBar(
-                content=ft.Text("🔒 Please sign in or create an account to view cart and orders."),
-                bgcolor="#DC2626"
-            )
-            page.snack_bar.open = True
-            page.update()
+            show_top_notification(page, "🔒 Please sign in or create an account to view cart and orders.", "#DC2626", ft.icons.LOCK)
             # Force redirect to Hub / Profile tab
             idx = 4
 
@@ -397,7 +389,7 @@ def main(page: ft.Page):
         elif idx == 3:
             content_area.content = build_orders_view(page)
         elif idx == 4:
-            content_area.content = build_profile_view(page, switch_tab, update_cart)
+            content_area.content = build_profile_view(page, switch_tab, update_cart, open_product_detail)
         elif idx == 5:
             content_area.content = build_dashboard_view(page)
         page.update()

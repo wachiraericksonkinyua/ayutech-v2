@@ -99,6 +99,31 @@ class DarajaService:
             return res.json()
 
     @classmethod
+    async def query_stk_status(cls, checkout_request_id: str) -> dict:
+        """Query the status of an STK transaction by CheckoutRequestID."""
+        cfg = cls.get_config()
+        access_token = await cls.get_access_token()
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        password = cls.generate_password(timestamp)
+
+        payload = {
+            "BusinessShortCode": cfg["shortcode"],
+            "Password": password,
+            "Timestamp": timestamp,
+            "CheckoutRequestID": checkout_request_id,
+        }
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        }
+
+        url = f"{cfg['base_url']}/mpesa/stkpushquery/v1/query"
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            res = await client.post(url, json=payload, headers=headers)
+            return res.json()
+
+    @classmethod
     async def send_stk_push(
         cls,
         phone_number: str,
