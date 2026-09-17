@@ -40,7 +40,6 @@ def build_loading_container():
                     "AYUTECH",
                     size=15,
                     weight=ft.FontWeight.BOLD,
-                    letter_spacing=3,
                     color=C.accent(),
                 ),
                 ft.Container(
@@ -445,7 +444,7 @@ def main(page: ft.Page):
         selected_index=0,
         indicator_color=C.accent_soft(),
         height=64,
-        label_text_style=ft.TextStyle(size=10, weight=ft.FontWeight.W_600),
+        label_behavior=ft.NavigationBarLabelBehavior.ALWAYS_SHOW,
         on_change=lambda e: switch_tab(int(e.data)),
         destinations=[
             ft.NavigationDestination(icon=ft.icons.HOME_OUTLINED, selected_icon=ft.icons.HOME, label="Home"),
