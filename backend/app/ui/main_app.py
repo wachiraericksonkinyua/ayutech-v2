@@ -92,7 +92,7 @@ def main(page: ft.Page):
       start_time = time.time()
       try:
         # Switch to public /products/ endpoint
-        res = httpx.get(f'{API_BASE_URL}/products', timeout=6)
+        res = httpx.get(f'{API_BASE_URL}/products/', timeout=6, follow_redirects=True)
         if res.status_code == 200 and len(res.json()) > 0:
           all_products.clear()
           all_products.extend(res.json())
