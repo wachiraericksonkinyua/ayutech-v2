@@ -1,14 +1,21 @@
 # backend/app/api/v1/endpoints/admin.py
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
 import urllib.parse
 import httpx
 from app.db.supabase_client import supabase
+from app.core.cache import product_cache
+from app.core.auth_deps import require_admin
+from app.core.rate_limiter import limiter
+from app.core.security import create_admin_token
 
 router = APIRouter()
+
+# Every route in this router requires a staff token EXCEPT pin-login.
+_admin_guard = [Depends(require_admin)]
 
 def _ensure_list(v):
     return v if isinstance(v, list) else []
@@ -25,7 +32,7 @@ class ProductEditPayload(BaseModel):
     supplier_phone: Optional[str] = "254112323814"
 
 # ==================== ORDERS ENDPOINTS ====================
-@router.get("/orders")
+@router.get("/orders", dependencies=_admin_guard)
 async def get_admin_orders():
     try:
         res = supabase.table("orders").select("*").order("created_at", desc=True).limit(100).execute()
@@ -33,7 +40,7 @@ async def get_admin_orders():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/orders")
+@router.post("/orders", dependencies=_admin_guard)
 async def create_admin_order(payload: dict):
     try:
         res = supabase.table("orders").insert(payload).execute()
@@ -42,7 +49,7 @@ async def create_admin_order(payload: dict):
         print(f"Order creation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/orders/manual-override")
+@router.post("/orders/manual-override", dependencies=_admin_guard)
 async def process_manual_payment_override(payload: dict):
     clean_ref = str(payload.get("payment_reference", "")).strip().upper()
     if not clean_ref:
@@ -100,7 +107,7 @@ async def process_manual_payment_override(payload: dict):
         "total_amount": total_amount
     }
 
-@router.patch("/orders/{order_id}/status")
+@router.patch("/orders/{order_id}/status", dependencies=_admin_guard)
 async def update_order_status(order_id: str, payload: dict):
     new_status = str(payload.get("status", "")).strip()
     if not new_status:
@@ -146,7 +153,7 @@ async def update_order_status(order_id: str, payload: dict):
     return {"status": "success", "new_status": new_status}
 
 # ==================== PRODUCTS ENDPOINTS ====================
-@router.get("/products")
+@router.get("/products", dependencies=_admin_guard)
 async def get_admin_products():
     try:
         res = supabase.table("products").select("*").order("name", desc=False).execute()
@@ -154,40 +161,44 @@ async def get_admin_products():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/products")
+@router.post("/products", dependencies=_admin_guard)
 async def create_product(item: ProductEditPayload):
     try:
         res = supabase.table("products").insert(item.dict()).execute()
+        product_cache.invalidate()
         return {"status": "success", "product": getattr(res, "data", [])}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.patch("/products/{product_id}")
+@router.patch("/products/{product_id}", dependencies=_admin_guard)
 async def quick_stock_update(product_id: str, payload: dict):
     try:
         res = supabase.table("products").update(payload).eq("id", product_id).execute()
+        product_cache.invalidate()
         return {"status": "success", "data": getattr(res, "data", [])}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.put("/products/{product_id}")
+@router.put("/products/{product_id}", dependencies=_admin_guard)
 async def edit_full_product(product_id: str, payload: ProductEditPayload):
     try:
         res = supabase.table("products").update(payload.dict()).eq("id", product_id).execute()
+        product_cache.invalidate()
         return {"status": "success", "data": getattr(res, "data", [])}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.delete("/products/{product_id}")
+@router.delete("/products/{product_id}", dependencies=_admin_guard)
 async def delete_product(product_id: str):
     try:
         supabase.table("products").delete().eq("id", product_id).execute()
+        product_cache.invalidate()
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== LEADS & BOT TAKEOVER ====================
-@router.get("/leads")
+@router.get("/leads", dependencies=_admin_guard)
 async def get_admin_leads():
     try:
         res = supabase.table("leads").select("*").order("created_at", desc=True).limit(100).execute()
@@ -195,7 +206,7 @@ async def get_admin_leads():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.patch("/leads/{lead_id}/takeover")
+@router.patch("/leads/{lead_id}/takeover", dependencies=_admin_guard)
 async def toggle_human_takeover(lead_id: str, payload: dict):
     new_status = str(payload.get("status", "human_takeover")).strip()
     try:
@@ -206,7 +217,7 @@ async def toggle_human_takeover(lead_id: str, payload: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== AUTH & REFILLS ====================
-@router.get("/auth/staff-list")
+@router.get("/auth/staff-list", dependencies=_admin_guard)
 async def get_staff_list():
     try:
         res = supabase.table("staff_users").select("id, name, role, phone").execute()
@@ -215,7 +226,8 @@ async def get_staff_list():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/auth/pin-login")
-async def pin_login(payload: dict):
+@limiter.limit("10/minute")
+async def pin_login(request: Request, payload: dict):
     identifier = str(payload.get("identifier", "")).strip().lower()
     pin = str(payload.get("pin", "")).strip()
 
@@ -239,14 +251,21 @@ async def pin_login(payload: dict):
             u_name = str(u.get("name", "")).strip().lower()
             if u_pin == pin:
                 if not identifier or (core_digits and core_digits in u_phone) or (identifier in u_name):
-                    return {"status": "success", "user": u}
+                    # Never return the PIN back to the client
+                    safe_user = {k: v for k, v in u.items() if k != "pin_code"}
+                    token = create_admin_token({
+                        "sub": str(u.get("id", "")),
+                        "name": u.get("name", "Staff"),
+                        "role": u.get("role", "staff"),
+                    })
+                    return {"status": "success", "access_token": token, "user": safe_user}
         raise HTTPException(status_code=401, detail="Invalid Phone/Name or PIN")
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/refills")
+@router.post("/refills", dependencies=_admin_guard)
 async def create_refill_request(payload: dict):
     try:
         clean_payload = {
@@ -265,7 +284,7 @@ async def create_refill_request(payload: dict):
         print(f"Refill insert error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/refills")
+@router.get("/refills", dependencies=_admin_guard)
 async def get_refill_requests():
     try:
         res = supabase.table("refill_requests").select("*").order("created_at", desc=True).execute()
@@ -273,7 +292,7 @@ async def get_refill_requests():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.patch("/refills/{refill_id}/status")
+@router.patch("/refills/{refill_id}/status", dependencies=_admin_guard)
 async def update_refill_status(refill_id: str, payload: dict):
     new_status = str(payload.get("status", "")).strip()
     try:
@@ -303,7 +322,7 @@ async def update_refill_status(refill_id: str, payload: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/analytics")
+@router.get("/analytics", dependencies=_admin_guard)
 async def get_analytics():
     try:
         orders_res = supabase.table("orders").select("*").execute()

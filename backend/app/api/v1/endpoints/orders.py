@@ -1,10 +1,11 @@
 import uuid
 from typing import List, Optional
 from pydantic import BaseModel
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 from app.services.daraja_service import DarajaService
 from app.db.supabase_client import supabase
 from app.core.rate_limiter import limiter
+from app.core.auth_deps import get_current_user
 import re
 
 router = APIRouter()
@@ -121,13 +122,19 @@ async def track_order_by_phone(phone: str):
 
 
 @router.get("/user/{identifier}")
-async def get_user_orders(identifier: str):
+async def get_user_orders(identifier: str, current_user: dict = Depends(get_current_user)):
     try:
         orders_list = []
         clean_id = (identifier or "").strip()
 
         if not clean_id or clean_id in ["None", "null", "undefined"]:
             return {"status": "success", "orders": []}
+
+        # Only allow a user to read their own orders (by id or email)
+        token_id = str(current_user.get("id", ""))
+        token_email = str(current_user.get("email") or "").lower()
+        if clean_id != token_id and clean_id.lower() != token_email:
+            raise HTTPException(status_code=403, detail="You can only view your own orders.")
 
         # 1. If it looks like a UUID, query customer_id directly
         if len(clean_id) > 30 and "-" in clean_id:
@@ -145,6 +152,8 @@ async def get_user_orders(identifier: str):
 
         # NO FALLBACK: If not authenticated or no orders match, return empty list!
         return {"status": "success", "orders": orders_list}
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Fetch user orders error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

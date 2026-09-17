@@ -7,3 +7,6 @@ httpx
 python-dotenv
 slowapi
 python-multipart
+PyJWT
+passlib
+bcrypt

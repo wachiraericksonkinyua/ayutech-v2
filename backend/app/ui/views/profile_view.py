@@ -8,6 +8,7 @@ from app.ui.notifications import notify, show_top_notification
 from app.ui import theme as theme_mod
 from app.ui.views.track_view import build_track_page
 from app.ui import colors as C
+from app.ui import api as api_client
 import app.ui.state as app_state
 
 current_logged_in_user = None
@@ -17,6 +18,9 @@ _SHARED_FILE_PICKER = [None]
 
 # Sub-page mode for the Hub tab: "" renders the dashboard, "settings" and "wishlist" render full pages
 profile_page_mode = ""
+
+# Shared profile info so the Hub header reflects saved avatar/name immediately
+hub_profile = {'username': 'Customer', 'full_name': '', 'phone': '', 'avatar_url': ''}
 
 
 def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback, open_detail_callback=None):
@@ -110,6 +114,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
           show_top_notification(page, '🎉 Account created! You can now sign in below.', '#16A34A')
           toggle_mode(None)
         else:
+          app_state.access_token = data.get('access_token', '') or ''
           handle_login_success(data.get('user'))
       else:
         show_top_notification(page, data.get('detail', 'Authentication failed.'), '#DC2626')
@@ -139,6 +144,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
     current_logged_in_user = None
     profile_page_mode = ''
     app_state.current_user_id = ''
+    app_state.access_token = ''
     user_info['email'] = ''
     # Clear per-user data so the next account never sees the previous one's data
     my_orders.clear()
@@ -307,13 +313,17 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
       def _load():
         try:
           if uid:
-            pr = httpx.get(f'{API_BASE_URL}/auth/profile/{uid}', timeout=8)
+            pr = api_client.get(f'/auth/profile/{uid}')
             if pr.status_code == 200:
               data = pr.json()
               if isinstance(data, dict):
                 for k in profile_data.keys():
                   if data.get(k) is not None:
                     profile_data[k] = data[k] if isinstance(data[k], list) else str(data[k])
+                hub_profile['avatar_url'] = profile_data.get('avatar_url', '')
+                hub_profile['full_name'] = profile_data.get('full_name', '')
+                hub_profile['username'] = profile_data.get('username', '')
+                hub_profile['phone'] = profile_data.get('phone', '')
                 refresh_image_previews()
                 try:
                   render_addresses()
@@ -395,8 +405,8 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
       try:
         with open(file_info.path, 'rb') as f:
           content = f.read()
-        res = httpx.post(
-            f'{API_BASE_URL}/auth/upload-image/',
+        res = api_client.post(
+            '/auth/upload-image/',
             params={'type': pending_upload['type']},
             files={'image': (file_info.name, content, file_info.content_type or 'image/jpeg')},
             timeout=15,
@@ -429,6 +439,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
       _SHARED_FILE_PICKER[0] = file_picker
     if file_picker not in page.overlay:
       page.overlay.append(file_picker)
+      page.update()
 
     def pick_avatar(e):
       pending_upload['type'] = 'avatar'
@@ -463,8 +474,8 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
           'addresses': list(profile_data.get('addresses') or []),
       }
       try:
-        res = httpx.patch(
-            f'{API_BASE_URL}/auth/profile/{uid}',
+        res = api_client.patch(
+            f'/auth/profile/{uid}',
             json=payload,
             timeout=10,
         )
@@ -473,6 +484,10 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
             user_info['name'] = payload['full_name']
           if payload.get('phone'):
             user_info['phone'] = payload['phone']
+          hub_profile['avatar_url'] = payload.get('avatar_url', '')
+          hub_profile['full_name'] = payload.get('full_name', '')
+          hub_profile['username'] = payload.get('username', '')
+          hub_profile['phone'] = payload.get('phone', '')
           notify(page, 'Profile saved!', '#16A34A', ft.icons.SAVE_OUTLINED, title='Profile Saved')
         else:
           detail = res.json().get('detail', 'Failed to save profile.') if res.content else 'Failed to save profile.'
@@ -492,21 +507,30 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
             ft.Stack([
                 ft.Container(
                     alignment=ft.alignment.center,
-                    margin=ft.margin.only(top=-36),
-                    content=ft.Stack([
-                        avatar_preview,
-                        ft.Container(
-                            width=24,
-                            height=24,
-                            border_radius=12,
-                            bgcolor='#DC2626',
-                            alignment=ft.alignment.center,
-                            left=-2,
-                            bottom=-2,
-                            content=ft.Icon(ft.icons.CAMERA_ALT, size=13, color='white'),
-                        ),
-                    ]),
+                    margin=ft.margin.only(top=-40),
                     on_click=pick_avatar,
+                    content=ft.Column([
+                        ft.Stack([
+                            avatar_preview,
+                            ft.Container(
+                                width=24,
+                                height=24,
+                                border_radius=12,
+                                bgcolor='#DC2626',
+                                alignment=ft.alignment.center,
+                                left=-2,
+                                bottom=-2,
+                                tooltip='Change profile photo',
+                                content=ft.Icon(ft.icons.CAMERA_ALT, size=13, color='white'),
+                            ),
+                        ]),
+                        ft.Text(
+                            'Tap to change photo',
+                            size=10,
+                            color=C.accent(),
+                            weight=ft.FontWeight.W_500,
+                        ),
+                    ], spacing=4, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                 ),
             ]),
             ft.Row([
@@ -676,6 +700,67 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
   # ---------------- MAIN HUB DASHBOARD ----------------
   logged_in_email = current_logged_in_user.get('email', 'Customer')
 
+  hub_avatar_circle = ft.Container(
+      width=56,
+      height=56,
+      border_radius=28,
+      bgcolor=C.grad_primary(),
+      alignment=ft.alignment.center,
+      border=ft.border.all(2, 'white'),
+      clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+      content=ft.Text(
+          logged_in_email[:2].upper(),
+          size=18,
+          weight=ft.FontWeight.BOLD,
+          color='white',
+      ),
+  )
+  hub_name_text = ft.Text(
+      logged_in_email.split('@')[0].capitalize(),
+      size=16,
+      weight=ft.FontWeight.BOLD,
+      color='white',
+  )
+
+  def load_hub_profile():
+    import threading
+
+    def _apply():
+      try:
+        if hub_profile.get('avatar_url'):
+          hub_avatar_circle.content = ft.Container(
+              expand=True,
+              border_radius=28,
+              clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+              content=ft.Image(src=hub_profile['avatar_url'], fit=ft.ImageFit.COVER, width=56, height=56),
+          )
+        hub_name_text.value = (
+            hub_profile.get('full_name')
+            or (hub_profile.get('username') if hub_profile.get('username') != 'Customer' else '')
+            or logged_in_email.split('@')[0].capitalize()
+        )
+        page.update()
+      except Exception:
+        pass
+
+    def _load():
+      try:
+        uid = current_logged_in_user.get('id', '')
+        if uid:
+          pr = api_client.get(f'/auth/profile/{uid}')
+          if pr.status_code == 200:
+            data = pr.json()
+            if isinstance(data, dict):
+              hub_profile['avatar_url'] = data.get('avatar_url') or hub_profile.get('avatar_url', '')
+              hub_profile['full_name'] = data.get('full_name') or hub_profile.get('full_name', '')
+              hub_profile['username'] = data.get('username') or hub_profile.get('username', '')
+              hub_profile['phone'] = data.get('phone') or hub_profile.get('phone', '')
+        _apply()
+      except Exception as e:
+        print(f'Hub profile load error: {e}')
+
+    threading.Thread(target=_load, daemon=True).start()
+
   profile_header = ft.Container(
       bgcolor=C.grad_deep(),
       border_radius=ft.border_radius.only(bottom_left=26, bottom_right=26),
@@ -693,12 +778,12 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                   ),
               ], spacing=6),
               ft.Row([
-                  ft.IconButton(
-                      icon=ft.icons.SETTINGS_OUTLINED,
-                      icon_color='#B6AEA4',
+                  ft.Container(
+                      padding=ft.padding.all(6),
+                      border_radius=24,
                       bgcolor='#18FFFFFF',
-                      tooltip='Profile Settings',
                       on_click=lambda e: open_settings(),
+                      content=ft.Icon(ft.icons.SETTINGS_OUTLINED, icon_color='#B6AEA4', size=22),
                   ),
                   ft.IconButton(
                       icon=ft.icons.LOGOUT,
@@ -708,35 +793,23 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                   ),
               ], spacing=6),
           ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-          ft.GestureDetector(
-              on_tap=lambda e: open_settings(),
+          ft.Container(
+              on_click=lambda e: open_settings(),
+              padding=ft.padding.symmetric(vertical=4),
               content=ft.Row([
-                  ft.Container(
-                      width=56,
-                      height=56,
-                      border_radius=28,
-                      bgcolor=C.grad_primary(),
-                      alignment=ft.alignment.center,
-                      border=ft.border.all(2, 'white'),
-                      content=ft.Text(
-                          logged_in_email[:2].upper(),
-                          size=18,
-                          weight=ft.FontWeight.BOLD,
-                          color='white',
-                      ),
-                  ),
+                  hub_avatar_circle,
                   ft.Column([
-                      ft.Text(
-                          logged_in_email.split('@')[0].capitalize(),
-                          size=16,
-                          weight=ft.FontWeight.BOLD,
-                          color='white',
-                      ),
+                      hub_name_text,
                       ft.Text(logged_in_email, size=11, color='#B6AEA4'),
                   ], spacing=2),
+                  ft.Icon(ft.icons.CHEVRON_RIGHT, size=16, color='#B6AEA4'),
               ], spacing=14),
           ),
-      ], spacing=10),
+          ft.Row([
+              ft.Icon(ft.icons.KEYBOARD_ARROW_DOWN, size=12, color='#B6AEA4'),
+              ft.Text('Tap your profile to edit photo & settings', size=10, color='#8F8780'),
+          ], spacing=4),
+      ], spacing=6),
   )
 
   def hub_tile(title, subtitle, icon, badge, on_click):
@@ -899,6 +972,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
       )
 
   render_wishlist()
+  load_hub_profile()
 
   return ft.Container(
       padding=ft.padding.only(left=15, right=15, top=0, bottom=120),

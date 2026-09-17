@@ -48,7 +48,7 @@ def main(page: ft.Page):
         window.min_height = 650
         window.resizable = True
 
-    current_user = {"name": "Guest", "role": None, "phone": ""}
+    current_user = {"name": "Guest", "role": None, "phone": "", "token": ""}
     orders_data = []
     products_data = []
     leads_data = []
@@ -68,11 +68,37 @@ def main(page: ft.Page):
         page.snack_bar.open = True
         page.update()
 
+    # ==================== AUTHENTICATED ADMIN HTTP ====================
+    def admin_headers():
+        token = current_user.get("token", "") or ""
+        return {"Authorization": f"Bearer {token}"} if token else {}
+
+    def _check_session(resp):
+        if resp.status_code == 401 and current_user.get("role"):
+            show_toast("Session expired. Please sign in again.", is_error=True)
+            try:
+                logout_handler(None)
+            except Exception:
+                pass
+        return resp
+
+    def admin_get(path, **kw):
+        kw.setdefault("timeout", 5)
+        return _check_session(httpx.get(f"{API_BASE_URL}{path}", headers=admin_headers(), **kw))
+
+    def admin_post(path, **kw):
+        kw.setdefault("timeout", 5)
+        return _check_session(httpx.post(f"{API_BASE_URL}{path}", headers=admin_headers(), **kw))
+
+    def admin_patch(path, **kw):
+        kw.setdefault("timeout", 5)
+        return _check_session(httpx.patch(f"{API_BASE_URL}{path}", headers=admin_headers(), **kw))
+
     # ==================== DATA FETCHERS ====================
     def fetch_all_orders():
         nonlocal orders_data
         try:
-            res = httpx.get(f"{API_BASE_URL}/admin/orders", timeout=4)
+            res = admin_get(f"/admin/orders", timeout=4)
             if res.status_code == 200:
                 orders_data = res.json().get("orders", [])
         except Exception as e:
@@ -81,7 +107,7 @@ def main(page: ft.Page):
     def fetch_all_products():
         nonlocal products_data
         try:
-            res = httpx.get(f"{API_BASE_URL}/admin/products", timeout=4)
+            res = admin_get(f"/admin/products", timeout=4)
             if res.status_code == 200:
                 products_data = res.json()
         except Exception as e:
@@ -90,7 +116,7 @@ def main(page: ft.Page):
     def fetch_all_leads():
         nonlocal leads_data
         try:
-            res = httpx.get(f"{API_BASE_URL}/admin/leads", timeout=4)
+            res = admin_get(f"/admin/leads", timeout=4)
             if res.status_code == 200:
                 leads_data = res.json().get("leads", [])
         except Exception as e:
@@ -99,7 +125,7 @@ def main(page: ft.Page):
     def fetch_refills():
         nonlocal refills_data
         try:
-            res = httpx.get(f"{API_BASE_URL}/admin/refills", timeout=4)
+            res = admin_get(f"/admin/refills", timeout=4)
             if res.status_code == 200:
                 refills_data = res.json().get("refills", [])
         except Exception as e:
@@ -110,7 +136,7 @@ def main(page: ft.Page):
         if current_user.get("role") != "admin":
             return
         try:
-            res = httpx.get(f"{API_BASE_URL}/admin/analytics", timeout=4)
+            res = admin_get(f"/admin/analytics", timeout=4)
             if res.status_code == 200:
                 analytics_data = res.json()
         except Exception as e:
@@ -195,7 +221,7 @@ Thank you for choosing AyuTech Motors!"""
                     "supplier_name": (p_sup.value or "").strip() or "Direct Importer",
                     "supplier_phone": (p_phone.value or "").strip() or "254112323814"
                 }
-                res = httpx.post(f"{API_BASE_URL}/admin/products", json=payload, timeout=4)
+                res = admin_post(f"/admin/products", json=payload, timeout=4)
                 if res.status_code in [200, 201]:
                     dlg.open = False
                     show_toast(f"Added {p_name.value} to catalog!")
@@ -267,7 +293,7 @@ Thank you for choosing AyuTech Motors!"""
                 if current_user.get("role") == "admin":
                     payload["stock_quantity"] = int((p_stock.value or "0").strip())
 
-                res = httpx.patch(f"{API_BASE_URL}/admin/products/{prod_id}", json=payload, timeout=4)
+                res = admin_patch(f"/admin/products/{prod_id}", json=payload, timeout=4)
                 if res.status_code in [200, 204]:
                     dlg.open = False
                     show_toast("Product updated successfully!")
@@ -319,7 +345,7 @@ Thank you for choosing AyuTech Motors!"""
                 "status": "pending_approval"
             }
             try:
-                res = httpx.post(f"{API_BASE_URL}/admin/refills", json=payload, timeout=4)
+                res = admin_post(f"/admin/refills", json=payload, timeout=4)
                 if res.status_code in [200, 201]:
                     dlg_refill.open = False
                     show_toast("Refill request submitted for approval!")
@@ -357,7 +383,7 @@ Thank you for choosing AyuTech Motors!"""
 
         def mark_fulfilled(order_id: str):
             try:
-                res = httpx.patch(f"{API_BASE_URL}/admin/orders/{order_id}/status", json={"status": "Fulfilled"}, timeout=4)
+                res = admin_patch(f"/admin/orders/{order_id}/status", json={"status": "Fulfilled"}, timeout=4)
                 if res.status_code == 200:
                     show_toast("Order Fulfilled & Stock Deducted!")
                     fetch_all_orders()
@@ -448,7 +474,7 @@ Thank you for choosing AyuTech Motors!"""
         def toggle_takeover(lead_id: str, current_status: str):
             next_status = "pending_contact" if current_status == "human_takeover" else "human_takeover"
             try:
-                res = httpx.patch(f"{API_BASE_URL}/admin/leads/{lead_id}/takeover", json={"status": next_status}, timeout=4)
+                res = admin_patch(f"/admin/leads/{lead_id}/takeover", json={"status": next_status}, timeout=4)
                 if res.status_code == 200:
                     show_toast(f"Bot {'paused' if next_status == 'human_takeover' else 'resumed'}!")
                     fetch_all_leads()
@@ -509,7 +535,7 @@ Thank you for choosing AyuTech Motors!"""
 
         def quick_stock_change(prod_id: str, new_qty: int):
             try:
-                res = httpx.patch(f"{API_BASE_URL}/admin/products/{prod_id}", json={"stock_quantity": max(0, new_qty)}, timeout=4)
+                res = admin_patch(f"/admin/products/{prod_id}", json={"stock_quantity": max(0, new_qty)}, timeout=4)
                 if res.status_code in [200, 204]:
                     fetch_all_products()
                     render_inventory_rows(search_inv.value or "")
@@ -774,7 +800,7 @@ Thank you for choosing AyuTech Motors!"""
             new_stock = max(0, curr_stock - sold_qty)
 
             try:
-                httpx.patch(f"{API_BASE_URL}/admin/products/{p['id']}", json={"stock_quantity": new_stock}, timeout=4)
+                admin_patch(f"/admin/products/{p['id']}", json={"stock_quantity": new_stock}, timeout=4)
             except Exception as e:
                 print(f"Stock deduct warning: {e}")
 
@@ -800,7 +826,7 @@ Thank you for choosing AyuTech Motors!"""
             order_payload["checkout_request_id"] = str(checkout_request_id)
 
         try:
-            httpx.post(f"{API_BASE_URL}/admin/orders", json=order_payload, timeout=4)
+            admin_post(f"/admin/orders", json=order_payload, timeout=4)
         except Exception as e:
             print(f"Failed to record order: {e}")
 
@@ -903,7 +929,7 @@ Thank you for choosing AyuTech Motors!"""
             }
 
             try:
-                res = httpx.post(f"{API_BASE_URL}/admin/orders/manual-override", json=payload, timeout=5)
+                res = admin_post(f"/admin/orders/manual-override", json=payload, timeout=5)
                 if res.status_code == 200:
                     dlg_override.open = False
                     order_ref = res.json().get("order_reference", f"MAN-{datetime.now().strftime('%H%M%S')}")
@@ -989,7 +1015,7 @@ Thank you for choosing AyuTech Motors!"""
 
         def update_refill_status(ref_id: str, new_st: str):
             try:
-                res = httpx.patch(f"{API_BASE_URL}/admin/refills/{ref_id}/status", json={"status": new_st}, timeout=4)
+                res = admin_patch(f"/admin/refills/{ref_id}/status", json={"status": new_st}, timeout=4)
                 if res.status_code == 200:
                     show_toast(f"Status updated to {new_st}!")
                     fetch_refills()
@@ -1275,6 +1301,7 @@ Report generated by: {current_user.get('name')} ({current_user.get('phone') or '
         current_user["name"] = "Guest"
         current_user["role"] = None
         current_user["phone"] = ""
+        current_user["token"] = ""
         user_role_badge_text.value = ""
         show_login_screen()
 
@@ -1318,6 +1345,25 @@ Report generated by: {current_user.get('name')} ({current_user.get('phone') or '
         focused_border_color="#DC2626"
     )
 
+    def apply_login_success(resp_data: dict):
+        nonlocal active_nav_index
+        user_info = resp_data.get("user", {})
+        current_user["token"] = resp_data.get("access_token", "") or ""
+        current_user["name"] = user_info.get("name", "Staff")
+        current_user["role"] = user_info.get("role", "staff")
+        current_user["phone"] = str(user_info.get("phone") or "").strip()
+
+        user_role_badge_text.value = str(current_user["role"] or "").upper()
+        user_role_badge.bgcolor = "#DC2626" if current_user.get("role") == "admin" else "#2563EB"
+        nav_rail.destinations = build_nav_destinations()
+        nav_rail.selected_index = 0
+        active_nav_index = 0
+
+        pin_field.value = ""
+        identifier_field.value = ""
+        show_dashboard_screen()
+        refresh_all_data()
+
     def handle_pin_login(e=None):
         ident = identifier_field.value.strip() if identifier_field.value else ""
         pin_code = pin_field.value.strip() if pin_field.value else ""
@@ -1331,32 +1377,19 @@ Report generated by: {current_user.get('name')} ({current_user.get('phone') or '
         payload = {"identifier": ident, "pin": pin_code}
         try:
             # Extended timeout (45s) for Render cold boots
-            res = httpx.post(f"{API_BASE_URL}/admin/auth/pin-login", json=payload, timeout=45.0)
+            res = admin_post(f"/admin/auth/pin-login", json=payload, timeout=45.0)
             if res.status_code == 200:
-                user_info = res.json().get("user", {})
-                current_user["name"] = user_info.get("name", "Staff")
-                current_user["role"] = user_info.get("role", "staff")
-                current_user["phone"] = str(user_info.get("phone") or "").strip()
-
-                user_role_badge_text.value = str(current_user["role"] or "").upper()
-                user_role_badge.bgcolor = "#DC2626" if current_user.get("role") == "admin" else "#2563EB"
-                nav_rail.destinations = build_nav_destinations()
-                nav_rail.selected_index = 0
-                nonlocal active_nav_index
-                active_nav_index = 0
-
-                pin_field.value = ""
-                identifier_field.value = ""
-                show_dashboard_screen()
-                refresh_all_data()
+                apply_login_success(res.json())
             else:
                 show_toast("Invalid Phone/Name or PIN", is_error=True)
         except httpx.TimeoutException:
             show_toast("Server is waking up. Retrying automatically...")
             try:
-                res = httpx.post(f"{API_BASE_URL}/admin/auth/pin-login", json=payload, timeout=20.0)
+                res = admin_post(f"/admin/auth/pin-login", json=payload, timeout=20.0)
                 if res.status_code == 200:
-                    handle_pin_login()
+                    apply_login_success(res.json())
+                else:
+                    show_toast("Invalid Phone/Name or PIN", is_error=True)
             except Exception:
                 show_toast("Connection timed out. Tap once more.", is_error=True)
         except Exception as err:

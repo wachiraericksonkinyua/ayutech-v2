@@ -7,6 +7,7 @@ import flet as ft
 import httpx
 from app.ui.state import API_BASE_URL, current_user_id, my_orders
 from app.ui.notifications import notify
+from app.ui import api as api_client
 from app.ui import colors as C
 
 
@@ -230,7 +231,7 @@ def build_orders_view(page: ft.Page):
     if not identifier:
       return False
     try:
-      res = httpx.get(f'{API_BASE_URL}/orders/user/{identifier}', timeout=5)
+      res = api_client.get(f'/orders/user/{identifier}', timeout=5)
       if res.status_code == 200:
         backend_orders = res.json().get('orders', [])
         added_new = False
@@ -483,15 +484,42 @@ def build_orders_view(page: ft.Page):
 
   def start_polling_loop():
     while True:
-      time.sleep(3)
-      changed = sync_orders_status()
-      if changed:
-        render_orders()
-        page.update()
+      time.sleep(20)
+      try:
+        changed = sync_orders_status()
+        if changed:
+          render_orders()
+          page.update()
+      except Exception as err:
+        print(f'Orders polling error: {err}')
 
-  # Initial load on view construct
-  sync_orders_status()
-  render_orders()
+  # Initial load runs in a background thread so opening the tab never blocks
+  def initial_load_and_render():
+    try:
+      sync_orders_status()
+    except Exception as err:
+      print(f'Initial orders load error: {err}')
+    finally:
+      render_orders()
+      try:
+        page.update()
+      except Exception:
+        pass
+
+  # Show a loading placeholder instead of the empty state while fetching
+  orders_list_container.controls.append(
+      ft.Container(
+          bgcolor=C.surface(),
+          border_radius=15,
+          padding=30,
+          border=ft.border.all(1, C.divider()),
+          content=ft.Column([
+              ft.ProgressRing(width=32, height=32, stroke_width=3, color='#DC2626'),
+              ft.Text('Loading your orders...', size=13, weight=ft.FontWeight.W_500, color=C.soft()),
+          ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=12),
+      )
+  )
+  threading.Thread(target=initial_load_and_render, daemon=True).start()
   threading.Thread(target=start_polling_loop, daemon=True).start()
 
   header_row = ft.Row([

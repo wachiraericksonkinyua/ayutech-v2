@@ -14,6 +14,8 @@ current_category = "All"
 my_orders = []
 active_search_query = ""
 current_user_id = ""  # Added to track active Supabase session UUID
+access_token = ""  # Supabase access token issued at login; sent as Bearer header
+admin_token = ""  # Staff/POS admin token from /admin/auth/pin-login
 user_info = {"email": ""}
 active_search_query = ""
 

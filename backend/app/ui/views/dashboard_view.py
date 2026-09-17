@@ -1,13 +1,12 @@
 # app/ui/views/dashboard_view.py
 
 import flet as ft
-import httpx
 import threading
 import time
-from app.ui.state import API_BASE_URL
+from app.ui import api as api_client
 from app.ui import colors as C
 
-def build_dashboard_view(page: ft.Page):
+def _build_dashboard_body(page: ft.Page):
     admin_orders = []
     active_filter = "All"
     search_query = ""
@@ -30,7 +29,7 @@ def build_dashboard_view(page: ft.Page):
         """Fetches latest orders from the backend API."""
         nonlocal admin_orders
         try:
-            res = httpx.get(f"{API_BASE_URL}/admin/orders", timeout=5)
+            res = api_client.admin_get("/admin/orders", timeout=5)
             if res.status_code == 200:
                 data = res.json().get("orders", [])
                 if data != admin_orders:
@@ -43,8 +42,8 @@ def build_dashboard_view(page: ft.Page):
     def update_order_fulfillment(order_db_id: str, new_status: str):
         """Dispatches an update to mark order as Fulfilled."""
         try:
-            res = httpx.patch(
-                f"{API_BASE_URL}/admin/orders/{order_db_id}/status",
+            res = api_client.admin_patch(
+                f"/admin/orders/{order_db_id}/status",
                 json={"status": new_status},
                 timeout=5
             )
@@ -312,4 +311,107 @@ def build_dashboard_view(page: ft.Page):
             filter_chips_row,
             orders_table_container
         ], scroll=ft.ScrollMode.AUTO, spacing=14)
+    )
+
+
+def build_dashboard_view(page: ft.Page):
+    """Admin dashboard entry point with a staff PIN login gate."""
+    import app.ui.state as app_state
+
+    root = ft.Container(expand=True)
+
+    def render():
+        if app_state.admin_token:
+            root.content = _build_dashboard_body(page)
+        else:
+            root.content = _build_admin_login(page, render)
+        try:
+            page.update()
+        except Exception:
+            pass
+
+    render()
+    return root
+
+
+def _build_admin_login(page: ft.Page, on_success):
+    import app.ui.state as app_state
+
+    identifier = ft.TextField(
+        label="Staff Phone or Name",
+        border_color=C.accent(),
+        focused_border_color=C.accent(),
+        bgcolor=C.field(),
+        height=44,
+        text_size=13,
+    )
+    pin = ft.TextField(
+        label="4-Digit PIN",
+        password=True,
+        can_reveal_password=True,
+        border_color=C.accent(),
+        focused_border_color=C.accent(),
+        bgcolor=C.field(),
+        height=44,
+        text_size=15,
+        text_align=ft.TextAlign.CENTER,
+    )
+    error_text = ft.Text("", size=11, color=C.danger())
+
+    def submit(e):
+        error_text.value = ""
+        code = (pin.value or "").strip()
+        if not code:
+            error_text.value = "Please enter your PIN."
+            page.update()
+            return
+        try:
+            res = api_client.admin_post(
+                "/admin/auth/pin-login",
+                json={"identifier": (identifier.value or "").strip(), "pin": code},
+                timeout=45,
+            )
+            if res.status_code == 200:
+                data = res.json()
+                app_state.admin_token = data.get("access_token", "") or ""
+                pin.value = ""
+                identifier.value = ""
+                on_success()
+            else:
+                error_text.value = "Invalid Phone/Name or PIN."
+                page.update()
+        except Exception as err:
+            error_text.value = f"Connection error: {err}"
+            page.update()
+
+    pin.on_submit = submit
+
+    return ft.Container(
+        alignment=ft.alignment.center,
+        expand=True,
+        bgcolor=C.bg(),
+        content=ft.Container(
+            width=360,
+            bgcolor=C.surface(),
+            border_radius=16,
+            padding=24,
+            border=ft.border.all(1, C.divider()),
+            content=ft.Column([
+                ft.Icon(ft.icons.LOCK_OUTLINED, color=C.accent(), size=44),
+                ft.Text("Admin Sign In", size=18, weight=ft.FontWeight.BOLD, color=C.text()),
+                ft.Text("Enter your staff phone/name and PIN", size=11, color=C.soft()),
+                identifier,
+                pin,
+                error_text,
+                ft.ElevatedButton(
+                    "Unlock Dashboard",
+                    bgcolor=C.accent(),
+                    color="white",
+                    width=310,
+                    height=44,
+                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=12)),
+                    on_click=submit,
+                ),
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=12),
+        ),
     )
