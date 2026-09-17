@@ -31,7 +31,16 @@ app = FastAPI(
 # Registering the limiter on app.state + the middleware is required for the
 # @limiter.limit(...) decorators to actually enforce limits.
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# slowapi's handler expects a RateLimitExceeded typed exception which causes
+# static type checkers to complain when registering it directly. Wrap it in
+# a thin adapter that accepts a generic Exception to satisfy FastAPI's
+# add_exception_handler signature and forwards to the original handler.
+def _rate_limit_handler(request: Request, exc: Exception):
+    # exc will be a RateLimitExceeded at runtime; forward as-is.
+    return _rate_limit_exceeded_handler(request, exc)  # type: ignore[arg-type]
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 app.add_middleware(SlowAPIMiddleware)
 
 # --- CORS --------------------------------------------------------------------
