@@ -194,7 +194,7 @@ _LANDING_PAGE = """<!DOCTYPE html>
                 <a href="#downloads">Get the App</a>
                 <a href="/docs">API Docs</a>
             </nav>
-            <a href="__WEB_APP_URL__" class="nav-cta">Open Web App</a>
+            __WEB_NAV__
         </div>
     </header>
 
@@ -204,8 +204,8 @@ _LANDING_PAGE = """<!DOCTYPE html>
             <h1>Genuine auto spares,<br><span>delivered to your garage.</span></h1>
             <p class="sub">Japanese and heavy-duty parts for Toyota, Mazda, Isuzu, Nissan and more. Find the right fitment with our AI assistant, pay via M-Pesa, and get it delivered.</p>
             <div class="cta-row">
-                <a href="__WEB_APP_URL__" class="btn btn-primary">Open Web App</a>
-                <a href="#downloads" class="btn btn-ghost">Download the App</a>
+                __WEB_HERO__
+                __DL_HERO__
                 <a href="__WHATSAPP_URL__" class="btn btn-ghost">Chat on WhatsApp</a>
             </div>
             <div class="trust">
@@ -262,15 +262,10 @@ _LANDING_PAGE = """<!DOCTYPE html>
                 <div class="section-head">
                     <div class="eyebrow">Get the App</div>
                     <h2>Shop AyuTech your way</h2>
-                    <p>Use the web app instantly, or install the Android / desktop app for the full experience.</p>
+                    <p>__DOWNLOADS_SUB__</p>
                 </div>
                 <div class="grid">
-                    <div class="card dl-card">
-                        <span class="tag">Web</span>
-                        <h3>Web App</h3>
-                        <p>Nothing to install. Open the shop in your browser and start ordering.</p>
-                        <a href="__WEB_APP_URL__" class="btn btn-primary">Open in Browser</a>
-                    </div>
+                    __WEB_DL_CARD__
                     <div class="card dl-card">
                         <span class="tag">Android</span>
                         <h3>Android APK</h3>
@@ -296,7 +291,7 @@ _LANDING_PAGE = """<!DOCTYPE html>
             </div>
             <div class="foot-col">
                 <h4>Shop</h4>
-                <a href="__WEB_APP_URL__">Web App</a>
+                __WEB_FOOT__
                 <a href="__APK_URL__">Android APK</a>
                 <a href="__DESKTOP_URL__">Desktop App</a>
             </div>
@@ -340,15 +335,51 @@ def root(request: Request):
         })
 
     repo = os.getenv("GITHUB_REPO_URL", "https://github.com/wachiraericksonkinyua/ayutech-v2")
-    web_app = os.getenv("WEB_APP_URL", "")
+    web_app = (os.getenv("WEB_APP_URL", "") or "").strip()
     apk_url = os.getenv("APK_DOWNLOAD_URL", f"{repo}/releases/latest/download/ayutech.apk")
-    desktop_url = os.getenv("DESKTOP_DOWNLOAD_URL", f"{repo}/releases/latest")
+    releases_url = f"{repo}/releases/latest"
+    desktop_url = os.getenv("DESKTOP_DOWNLOAD_URL", releases_url)
     whatsapp = os.getenv("OWNER_WHATSAPP_NUMBER", "254112323814")
     maps_url = "https://maps.app.goo.gl/iqoFy4be7SWYxCuJ8"
 
+    # Only show "Open Web App" when a Flet web server is actually hosted.
+    # Otherwise fall back to in-page downloads / the releases page so the
+    # landing page never links to a 404.
+    if web_app:
+        web_nav = f'<a href="{web_app}" class="nav-cta">Open Web App</a>'
+        web_hero = f'<a href="{web_app}" class="btn btn-primary">Open Web App</a>'
+        dl_hero = '<a href="#downloads" class="btn btn-ghost">Download the App</a>'
+        web_dl_card = (
+            '<div class="card dl-card">'
+            '<span class="tag">Web</span>'
+            '<h3>Web App</h3>'
+            '<p>Nothing to install. Open the shop in your browser and start ordering.</p>'
+            f'<a href="{web_app}" class="btn btn-primary">Open in Browser</a>'
+            '</div>'
+        )
+        web_foot = f'<a href="{web_app}">Web App</a>'
+        downloads_sub = (
+            "Use the web app instantly, or install the Android / desktop app "
+            "for the full experience."
+        )
+    else:
+        web_nav = '<a href="#downloads" class="nav-cta">Download App</a>'
+        web_hero = '<a href="#downloads" class="btn btn-primary">Download the App</a>'
+        dl_hero = ""
+        web_dl_card = ""
+        web_foot = f'<a href="{releases_url}">Releases</a>'
+        downloads_sub = (
+            "Download the Android APK or the desktop app to start shopping."
+        )
+
     html = (
         _LANDING_PAGE
-        .replace("__WEB_APP_URL__", web_app or "#downloads")
+        .replace("__WEB_NAV__", web_nav)
+        .replace("__WEB_HERO__", web_hero)
+        .replace("__DL_HERO__", dl_hero)
+        .replace("__WEB_DL_CARD__", web_dl_card)
+        .replace("__WEB_FOOT__", web_foot)
+        .replace("__DOWNLOADS_SUB__", downloads_sub)
         .replace("__APK_URL__", apk_url)
         .replace("__DESKTOP_URL__", desktop_url)
         .replace("__WHATSAPP_URL__", f"https://wa.me/{whatsapp}")
