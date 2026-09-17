@@ -7,6 +7,7 @@ import flet as ft
 import httpx
 from app.ui.state import API_BASE_URL, current_user_id, my_orders
 from app.ui.notifications import notify
+from app.ui import colors as C
 
 
 def build_orders_view(page: ft.Page):
@@ -105,17 +106,17 @@ def build_orders_view(page: ft.Page):
                       item.get('name', 'Product'),
                       size=13,
                       weight=ft.FontWeight.BOLD,
-                      color='#121212',
+                      color=C.text(),
                   ),
                   ft.Text(
-                      f'Qty: {qty} × KES {price:,.0f}', size=11, color='#6B7280'
+                      f'Qty: {qty} × KES {price:,.0f}', size=11, color=C.soft()
                   ),
               ], expand=True),
               ft.Text(
                   f'KES {item_total:,.0f}',
                   size=13,
                   weight=ft.FontWeight.BOLD,
-                  color='#121212',
+                  color=C.text(),
               ),
           ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
       )
@@ -130,9 +131,9 @@ def build_orders_view(page: ft.Page):
                         f'Order #{order_ref}',
                         size=16,
                         weight=ft.FontWeight.BOLD,
-                        color='#121212',
+                        color=C.text(),
                     ),
-                    ft.Text(order_date, size=11, color='#9CA3AF'),
+                    ft.Text(order_date, size=11, color=C.muted()),
                 ]),
                 ft.Container(
                     bgcolor=badge_color,
@@ -143,51 +144,51 @@ def build_orders_view(page: ft.Page):
                     ),
                 ),
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            ft.Divider(color='#E5E7EB'),
+            ft.Divider(color=C.divider()),
             ft.Row([
-                ft.Text('M-Pesa Receipt:', size=12, color='#6B7280'),
+                ft.Text('M-Pesa Receipt:', size=12, color=C.soft()),
                 ft.Text(
                     receipt_no,
                     size=12,
                     weight=ft.FontWeight.BOLD,
-                    color='#121212',
+                    color=C.text(),
                 ),
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ft.Row([
-                ft.Text('Fulfillment:', size=12, color='#6B7280'),
+                ft.Text('Fulfillment:', size=12, color=C.soft()),
                 ft.Text(
                     ord_data.get('fulfillment', 'Shop Pickup'),
                     size=12,
                     weight=ft.FontWeight.BOLD,
-                    color='#121212',
+                    color=C.text(),
                 ),
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ft.Row([
-                ft.Text('Payment Mode:', size=12, color='#6B7280'),
+                ft.Text('Payment Mode:', size=12, color=C.soft()),
                 ft.Text(
                     ord_data.get('payment_method', 'M-Pesa'),
                     size=12,
                     weight=ft.FontWeight.BOLD,
-                    color='#121212',
+                    color=C.text(),
                 ),
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            ft.Divider(color='#E5E7EB'),
+            ft.Divider(color=C.divider()),
             verify_action_row,
-            ft.Divider(color='#E5E7EB'),
+            ft.Divider(color=C.divider()),
             ft.Text(
                 'Purchased Items',
                 size=13,
                 weight=ft.FontWeight.BOLD,
-                color='#121212',
+                color=C.text(),
             ),
             items_breakdown,
-            ft.Divider(color='#E5E7EB'),
+            ft.Divider(color=C.divider()),
             ft.Row([
                 ft.Text(
                     'Grand Total Paid',
                     size=14,
                     weight=ft.FontWeight.BOLD,
-                    color='#121212',
+                    color=C.text(),
                 ),
                 ft.Text(
                     f"KES {float(ord_data.get('total') or ord_data.get('total_amount') or 0):,.0f}",
@@ -340,10 +341,10 @@ def build_orders_view(page: ft.Page):
     if not my_orders:
       orders_list_container.controls.append(
           ft.Container(
-              bgcolor='#F9FAFB',
+              bgcolor=C.surface(),
               border_radius=15,
               padding=30,
-              border=ft.border.all(1, '#E5E7EB'),
+              border=ft.border.all(1, C.divider()),
               content=ft.Column([
                   ft.Icon(
                       ft.icons.RECEIPT_LONG_OUTLINED, size=50, color='#DC2626'
@@ -352,13 +353,13 @@ def build_orders_view(page: ft.Page):
                       'No active orders found',
                       size=15,
                       weight=ft.FontWeight.BOLD,
-                      color='#121212',
+                      color=C.text(),
                   ),
                   ft.Text(
                       'Your completed M-Pesa purchases and pickup orders will'
                       ' appear here automatically.',
                       size=12,
-                      color='#6B7280',
+                      color=C.soft(),
                       text_align=ft.TextAlign.CENTER,
                   ),
               ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
@@ -392,7 +393,7 @@ def build_orders_view(page: ft.Page):
                 ft.Text(
                     f'KES {price * qty:,.0f}',
                     size=11,
-                    color='#121212',
+                    color=C.text(),
                     weight=ft.FontWeight.BOLD,
                 ),
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
@@ -414,10 +415,10 @@ def build_orders_view(page: ft.Page):
         )
 
       order_card = ft.Container(
-          bgcolor='#F9FAFB',
+          bgcolor=C.surface(),
           border_radius=15,
           padding=15,
-          border=ft.border.all(1, '#E5E7EB'),
+          border=ft.border.all(1, C.divider()),
           on_click=lambda e, current_order=ord: show_receipt_dialog(
               current_order
           ),
@@ -431,7 +432,7 @@ def build_orders_view(page: ft.Page):
                           f'Order #{order_id_display}',
                           size=13,
                           weight=ft.FontWeight.BOLD,
-                          color='#121212',
+                          color=C.text(),
                       ),
                   ], spacing=6),
                   ft.Container(
@@ -446,16 +447,16 @@ def build_orders_view(page: ft.Page):
                       ),
                   ),
               ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-              ft.Text(order_date, size=11, color='#9CA3AF'),
-              ft.Divider(color='#E5E7EB'),
+              ft.Text(order_date, size=11, color=C.muted()),
+              ft.Divider(color=C.divider()),
               items_detail,
-              ft.Divider(color='#E5E7EB'),
+              ft.Divider(color=C.divider()),
               ft.Row([
                   ft.Text(
                       f"{ord.get('fulfillment', 'Pickup')} •"
                       f" {ord.get('payment_method', 'M-Pesa')}",
                       size=11,
-                      color='#6B7280',
+                      color=C.soft(),
                   ),
                   ft.Text(
                       f'KES {order_total:,.0f}',
@@ -468,7 +469,7 @@ def build_orders_view(page: ft.Page):
               ft.Text(
                   'Tap to view full receipt',
                   size=10,
-                  color='#9CA3AF',
+                  color=C.muted(),
                   italic=True,
               ),
           ], spacing=6),
@@ -495,7 +496,7 @@ def build_orders_view(page: ft.Page):
 
   header_row = ft.Row([
       ft.Text(
-          'My Orders', size=22, weight=ft.FontWeight.BOLD, color='#121212'
+          'My Orders', size=22, weight=ft.FontWeight.BOLD, color=C.text()
       ),
       ft.IconButton(
           icon=ft.icons.REFRESH,

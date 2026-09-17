@@ -5,6 +5,7 @@ import httpx
 import datetime
 from app.ui.state import cart, my_orders, API_BASE_URL, current_user_id
 from app.ui.notifications import notify
+from app.ui import colors as C
 
 def format_phone_number(raw: str) -> str:
     cleaned = "".join(filter(str.isdigit, raw))
@@ -49,7 +50,7 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
         value="Near Suburbs: Westlands/Kilimani (KES 300)",
         text_size=12,
         border_color="#DC2626",
-        bgcolor="white",
+        bgcolor=C.field(),
         on_change=on_zone_change
     )
 
@@ -57,7 +58,7 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
         label="M-Pesa Number for STK Push",
         hint_text="e.g. 0712345678 or 0112345678",
         border_color="#DC2626",
-        bgcolor="white",
+        bgcolor=C.field(),
         height=45,
         text_size=13,
         visible=True
@@ -66,23 +67,60 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
     landmark_input = ft.TextField(
         label="Specific Landmark / Building / Receiver Name",
         hint_text="e.g. Next to Total Petrol Station, Gate B",
-        border_color="#E5E7EB",
-        bgcolor="white",
+        border_color=C.input_border(),
+        bgcolor=C.field(),
         height=45,
         text_size=12
     )
 
     delivery_fee_text = ft.Text("FREE (Shop Pickup)", color="#25D366", size=12, weight=ft.FontWeight.BOLD)
-    delivery_container = ft.Column([zone_dropdown, landmark_input], spacing=8, visible=False)
+
+    saved_address_dd = ft.Dropdown(
+        label="Use a saved address",
+        options=[],
+        text_size=12,
+        border_color=C.input_border(),
+        bgcolor=C.field(),
+        visible=False,
+        on_change=lambda e: (address_input.__setattr__("value", ""), page.update()),
+    )
+
+    address_input = ft.TextField(
+        label="Delivery Address",
+        hint_text="Full address: estate / building / floor",
+        border_color=C.input_border(),
+        bgcolor=C.field(),
+        height=45,
+        text_size=12,
+    )
+
+    delivery_container = ft.Column([saved_address_dd, zone_dropdown, landmark_input, address_input], spacing=8, visible=False)
+
+    def load_saved_addresses():
+        import threading
+        def _go():
+            try:
+                if not current_user_id:
+                    return
+                res = httpx.get(f"{API_BASE_URL}/auth/profile/{current_user_id}", timeout=8)
+                if res.status_code == 200:
+                    addrs = res.json().get("addresses") or []
+                    if isinstance(addrs, list) and addrs:
+                        saved_address_dd.options = [ft.dropdown.Option(str(a)) for a in addrs]
+                        saved_address_dd.visible = True
+                        page.update()
+            except Exception:
+                pass
+        threading.Thread(target=_go, daemon=True).start()
 
     if not cart:
         return ft.Column([
-            ft.Container(padding=15, content=ft.Text("Shopping Cart", size=20, weight=ft.FontWeight.BOLD, color="#121212")),
+            ft.Container(padding=15, content=ft.Text("Shopping Cart", size=20, weight=ft.FontWeight.BOLD, color=C.text())),
             ft.Container(
                 padding=40, alignment=ft.alignment.center,
                 content=ft.Column([
-                    ft.Icon(ft.icons.REMOVE_SHOPPING_CART, size=60, color="#9CA3AF"),
-                    ft.Text("Your cart is empty", size=14, color="#6B7280")
+                    ft.Icon(ft.icons.REMOVE_SHOPPING_CART, size=60, color=C.muted()),
+                    ft.Text("Your cart is empty", size=14, color=C.soft())
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
             )
         ], expand=True)
@@ -91,17 +129,17 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
     for p_id, item in cart.items():
         items_col.controls.append(
             ft.Container(
-                bgcolor="#F9FAFB", border_radius=12, padding=10, border=ft.border.all(1, "#E5E7EB"),
+                bgcolor=C.surface(), border_radius=12, padding=10, border=ft.border.all(1, C.divider()),
                 content=ft.Row([
                     ft.Container(width=50, height=50, border_radius=8, clip_behavior=ft.ClipBehavior.ANTI_ALIAS, content=get_item_image(item.get("image"))),
                     ft.Column([
-                        ft.Text(item["name"], size=12, weight=ft.FontWeight.BOLD, color="#121212", max_lines=1),
+                        ft.Text(item["name"], size=12, weight=ft.FontWeight.BOLD, color=C.text(), max_lines=1),
                         ft.Text(f"KES {item['price']:,.0f}", size=12, color="#DC2626", weight=ft.FontWeight.BOLD)
                     ], expand=True),
                     ft.Row([
-                        ft.IconButton(ft.icons.REMOVE, icon_size=16, icon_color="white", bgcolor="#121212", on_click=lambda e, pid=p_id: change_qty_callback(pid, -1)),
-                        ft.Text(str(item["qty"]), size=13, weight=ft.FontWeight.BOLD, color="#121212"),
-                        ft.IconButton(ft.icons.ADD, icon_size=16, icon_color="white", bgcolor="#121212", on_click=lambda e, pid=p_id: change_qty_callback(pid, 1)),
+                        ft.IconButton(ft.icons.REMOVE, icon_size=16, icon_color="white", bgcolor=C.text(), on_click=lambda e, pid=p_id: change_qty_callback(pid, -1)),
+                        ft.Text(str(item["qty"]), size=13, weight=ft.FontWeight.BOLD, color=C.text()),
+                        ft.IconButton(ft.icons.ADD, icon_size=16, icon_color="white", bgcolor=C.text(), on_click=lambda e, pid=p_id: change_qty_callback(pid, 1)),
                     ], spacing=2)
                 ])
             )
@@ -121,19 +159,19 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
     # Fulfillment Cards
     pickup_card = ft.Container(
         border_radius=12, padding=12,
-        bgcolor="#FEE2E2", border=ft.border.all(1.5, "#DC2626"),
+        bgcolor=C.accent_soft(), border=ft.border.all(1.5, "#DC2626"),
         content=ft.Row([
-            ft.Row([ft.Icon(ft.icons.STORE_OUTLINED, color="#DC2626"), ft.Text("Shop Pick-up (Kirinyaga Rd)", weight=ft.FontWeight.BOLD, color="#121212", size=13)]),
+            ft.Row([ft.Icon(ft.icons.STORE_OUTLINED, color="#DC2626"), ft.Text("Shop Pick-up (Kirinyaga Rd)", weight=ft.FontWeight.BOLD, color=C.text(), size=13)]),
             ft.Text("FREE", color="#25D366", weight=ft.FontWeight.BOLD, size=12)
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
     )
 
     delivery_card = ft.Container(
         border_radius=12, padding=12,
-        bgcolor="#F9FAFB", border=ft.border.all(1, "#E5E7EB"),
+        bgcolor=C.surface(), border=ft.border.all(1, C.divider()),
         content=ft.Row([
-            ft.Row([ft.Icon(ft.icons.TWO_WHEELER_OUTLINED, color="#121212"), ft.Text("Rider / Courier Delivery", weight=ft.FontWeight.BOLD, color="#121212", size=13)]),
-            ft.Text("From KES 200", color="#6B7280", weight=ft.FontWeight.BOLD, size=12)
+            ft.Row([ft.Icon(ft.icons.TWO_WHEELER_OUTLINED, color=C.text()), ft.Text("Rider / Courier Delivery", weight=ft.FontWeight.BOLD, color=C.text(), size=13)]),
+            ft.Text("From KES 200", color=C.soft(), weight=ft.FontWeight.BOLD, size=12)
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
     )
 
@@ -161,19 +199,19 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
 
     def make_payment_row(label, icon, selected_icon, selected):
         return ft.Row([
-            ft.Row([ft.Icon(icon, color="#121212" if not selected else "#DC2626"), ft.Text(label, weight=ft.FontWeight.BOLD, color="#121212", size=13)]),
+            ft.Row([ft.Icon(icon, color=C.text() if not selected else "#DC2626"), ft.Text(label, weight=ft.FontWeight.BOLD, color=C.text(), size=13)]),
             selected_icon
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
 
     mpesa_card = ft.Container(
         border_radius=12, padding=12,
-        bgcolor="#FEE2E2", border=ft.border.all(1.5, "#DC2626"),
+        bgcolor=C.accent_soft(), border=ft.border.all(1.5, "#DC2626"),
         content=make_payment_row("M-Pesa STK Push", ft.icons.PHONE_ANDROID, ft.Icon(ft.icons.CHECK_CIRCLE, color="#DC2626", size=18), True)
     )
 
     cash_card = ft.Container(
         border_radius=12, padding=12,
-        bgcolor="#F9FAFB", border=ft.border.all(1, "#E5E7EB"),
+        bgcolor=C.surface(), border=ft.border.all(1, C.divider()),
         content=make_payment_row("Cash on Pickup", ft.icons.PAYMENTS_OUTLINED, ft.Icon(ft.icons.RADIO_BUTTON_UNCHECKED, color="gray", size=18), False)
     )
 
@@ -240,10 +278,19 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
 
         active_customer_id = current_user_id if current_user_id else None
 
+        delivery_address = ""
+        if fulfillment_type == "delivery":
+            delivery_address = (
+                (address_input.value or "").strip()
+                or (saved_address_dd.value or "").strip()
+                or (landmark_input.value or "").strip()
+            )
+
         order_payload = {
             "phone": formatted_phone if selected_payment == "mpesa" else "Cash Customer",
             "fulfillment": "Rider / Courier Delivery" if fulfillment_type == "delivery" else "Shop Pickup",
             "location": f"{zone_dropdown.value} - {landmark_input.value}" if fulfillment_type == "delivery" else "Kirinyaga Road Shop",
+            "delivery_address": delivery_address,
             "payment_method": "M-Pesa STK Push" if selected_payment == "mpesa" else "Cash on Pickup",
             "items": items_payload,
             "total": float(final_total),
@@ -269,7 +316,7 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
                 my_orders.insert(0, new_order)
                 cart.clear()
                 notify(page, "STK Prompt sent! Enter M-Pesa PIN on your phone.", "#25D366", ft.icons.PHONE_ANDROID, title="M-Pesa Prompt")
-                change_qty_callback("dummy", 0)
+                show_confirmation(new_order)
             else:
                 raise Exception(f"Backend returned {res.status_code}")
         except Exception as err:
@@ -286,7 +333,137 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
             my_orders.insert(0, new_order)
             cart.clear()
             notify(page, "Order recorded! View details in Orders tab.", "#25D366", ft.icons.CHECK_CIRCLE, title="Order Placed")
-            change_qty_callback("dummy", 0)
+            show_confirmation(new_order)
+
+    def show_confirmation(order):
+      cart_ref = str(order.get("order_id", "AYU-????"))
+      status_text = ft.Text(order.get("status", "Pending PIN"), size=13, weight=ft.FontWeight.BOLD, color="#F59E0B")
+      receipt_text = ft.Text("Payment not yet detected", size=12, color=C.muted())
+
+      def _status_color(st):
+        return {"Paid": "#16A34A", "Processing": "#3B82F6", "Fulfilled": "#16A34A", "Cancelled": "#DC2626"}.get(st, "#F59E0B")
+
+      def refresh_status():
+        try:
+          r = httpx.get(f"{API_BASE_URL}/orders/status/{cart_ref}", timeout=10)
+          if r.status_code == 200:
+            data = r.json()
+            st = data.get("status", "Pending PIN")
+            status_text.value = st
+            status_text.color = _status_color(st)
+            if data.get("receipt_number"):
+              receipt_text.value = f"Receipt: {data['receipt_number']}"
+              receipt_text.color = "#16A34A"
+            else:
+              receipt_text.value = "Payment not yet detected"
+              receipt_text.color = "#9CA3AF"
+            page.update()
+            if st == "Paid":
+              notify(page, f"Order {cart_ref} is now PAID!", "#16A34A", ft.icons.CHECK_CIRCLE, title="Payment Received")
+        except Exception:
+          pass
+
+      def do_refresh(e):
+        notify(page, "Checking M-Pesa status...", "#3B82F6", ft.icons.SYNC, title="Status Check")
+        refresh_status()
+
+      def open_verify(e):
+        code_field = ft.TextField(
+            label="M-Pesa confirmation code", hint_text="e.g. QRS1234ABCD",
+            text_size=13, border_color="#DC2626", bgcolor=C.field(), height=44,
+        )
+        close_btn = ft.TextButton("Cancel")
+
+        def submit_code(evt):
+          code = (code_field.value or "").strip()
+          if not code:
+            notify(page, "Enter the M-Pesa code from your SMS.", "#DC2626", ft.icons.ERROR_OUTLINE, title="Missing Code")
+            return
+          try:
+            r = httpx.post(
+                f"{API_BASE_URL}/orders/verify-receipt",
+                json={"order_reference": cart_ref, "receipt_number": code},
+                timeout=12,
+            )
+            if r.status_code in [200, 201]:
+              notify(page, r.json().get("message", "Payment verified!"), "#16A34A", title="Verified")
+              dlg.open = False
+              page.update()
+              refresh_status()
+            else:
+              detail = "Verification failed."
+              try:
+                detail = r.json().get("detail", detail)
+              except Exception:
+                pass
+              notify(page, detail, "#DC2626", ft.icons.ERROR_OUTLINE, title="Verification Failed")
+              refresh_status()
+          except Exception as err:
+            notify(page, f"Verify error: {err}", "#DC2626", ft.icons.ERROR_OUTLINE, title="Verification Failed")
+
+        verify_btn = ft.ElevatedButton("Verify Code", bgcolor="#DC2626", color="white", on_click=submit_code)
+        dlg = ft.AlertDialog(
+            modal=True,
+            bgcolor=C.bg(),
+            shape=ft.RoundedRectangleBorder(radius=16),
+            title=ft.Text("Verify Payment", size=16, weight=ft.FontWeight.BOLD, color=C.text()),
+            content=ft.Column([
+                ft.Text("Enter the confirmation code from your M-Pesa SMS for this order.", size=12, color=C.soft()),
+                code_field,
+            ], tight=True, spacing=8),
+            actions=[close_btn, verify_btn],
+        )
+        close_btn.on_click = lambda ev: (setattr(dlg, "open", False), page.update())
+        page.dialog = dlg
+        dlg.open = True
+        page.update()
+
+      conf_column = ft.Column([
+          ft.Container(
+              padding=30, alignment=ft.alignment.center,
+              content=ft.Column([
+                  ft.Container(
+                      width=76, height=76, bgcolor=C.accent_soft(), border_radius=38,
+                      alignment=ft.alignment.center,
+                      content=ft.Icon(ft.icons.CHECK_CIRCLE, color="#16A34A", size=44),
+                  ),
+                  ft.Text("Order Confirmed!", size=20, weight=ft.FontWeight.BOLD, color=C.text()),
+                  ft.Text(f"Reference: {cart_ref}", size=13, weight=ft.FontWeight.BOLD, color="#DC2626"),
+                  ft.Text(order.get("date", ""), size=11, color=C.muted()),
+              ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
+          ),
+          ft.Container(
+              bgcolor=C.surface(), border_radius=14, padding=14, border=ft.border.all(1, C.divider()),
+              content=ft.Column([
+                  ft.Text("Summary", size=13, weight=ft.FontWeight.BOLD, color=C.text()),
+                  ft.Row([ft.Text("Items", size=12, color=C.soft()), ft.Text(f"{len(order.get('items') or [])}", size=12, color=C.text(), weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                  ft.Row([ft.Text("Total", size=12, color=C.soft()), ft.Text(f"KES {float(order.get('total') or 0):,.0f}", size=13, color="#DC2626", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                  ft.Row([ft.Text("Payment", size=12, color=C.soft()), ft.Text(order.get("payment_method", ""), size=12, color=C.text(), weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                  ft.Row([ft.Text("Fulfillment", size=12, color=C.soft()), ft.Text(order.get("fulfillment", ""), size=12, color=C.text(), weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+              ], spacing=8, tight=True),
+          ),
+          ft.Container(
+              bgcolor=C.surface(), border_radius=14, padding=14, border=ft.border.all(1, C.divider()),
+              content=ft.Column([
+                  ft.Text("Payment Status", size=13, weight=ft.FontWeight.BOLD, color=C.text()),
+                  status_text,
+                  receipt_text,
+                  ft.Row([
+                      ft.OutlinedButton("Check Status", icon=ft.icons.REFRESH, on_click=do_refresh),
+                      ft.ElevatedButton("Have a Code? Verify", bgcolor="#DC2626", color="white", on_click=open_verify),
+                  ], spacing=8),
+              ], spacing=6, tight=True),
+          ),
+          ft.Text("An M-Pesa prompt was sent to your phone (if M-Pesa was selected). Enter your PIN, then tap Check Status.", size=11, color=C.soft()),
+          ft.Row([
+              ft.FilledButton("Continue Shopping", bgcolor=C.text(), color="white", on_click=lambda e: switch_tab_callback(0)),
+              ft.OutlinedButton("View Orders", on_click=lambda e: switch_tab_callback(3)),
+          ], spacing=8),
+      ], scroll=ft.ScrollMode.AUTO, spacing=12, expand=True)
+
+      content_col.controls.clear()
+      content_col.controls.append(conf_column)
+      page.update()
 
     checkout_btn = ft.ElevatedButton(
         "Pay via M-PESA",
@@ -296,33 +473,37 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
     )
 
     checkout_card = ft.Container(
-        padding=15, bgcolor="#FFFFFF", border_radius=15, border=ft.border.all(1, "#E5E7EB"),
+        padding=15, bgcolor=C.bg(), border_radius=15, border=ft.border.all(1, C.divider()),
         content=ft.Column([
-            ft.Text("Fulfillment Option", size=14, weight=ft.FontWeight.BOLD, color="#121212"),
+            ft.Text("Fulfillment Option", size=14, weight=ft.FontWeight.BOLD, color=C.text()),
             pickup_card,
             delivery_card,
             delivery_container,
-            ft.Divider(color="#E5E7EB"),
-            ft.Text("Payment Method", size=14, weight=ft.FontWeight.BOLD, color="#121212"),
+            ft.Divider(color=C.divider()),
+            ft.Text("Payment Method", size=14, weight=ft.FontWeight.BOLD, color=C.text()),
             mpesa_card,
             phone_input,
             cash_card,
-            ft.Divider(color="#E5E7EB"),
-            ft.Text("Order Summary", size=13, weight=ft.FontWeight.BOLD, color="#121212"),
-            ft.Row([ft.Text("Subtotal", color="#6B7280", size=12), ft.Text(f"KES {subtotal:,.0f}", color="#121212", size=12, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            ft.Row([ft.Text("Delivery Fee", color="#6B7280", size=12), delivery_fee_text], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            ft.Row([ft.Text("Total", color="#121212", size=14, weight=ft.FontWeight.BOLD), total_price_text], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ft.Divider(color=C.divider()),
+            ft.Text("Order Summary", size=13, weight=ft.FontWeight.BOLD, color=C.text()),
+            ft.Row([ft.Text("Subtotal", color=C.soft(), size=12), ft.Text(f"KES {subtotal:,.0f}", color=C.text(), size=12, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ft.Row([ft.Text("Delivery Fee", color=C.soft(), size=12), delivery_fee_text], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ft.Row([ft.Text("Total", color=C.text(), size=14, weight=ft.FontWeight.BOLD), total_price_text], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ft.Container(height=5),
             checkout_btn
         ], spacing=8, tight=True)
     )
 
+    load_saved_addresses()
+
+    content_col = ft.Column([
+        ft.Text("Shopping Cart", size=20, weight=ft.FontWeight.BOLD, color=C.text()),
+        items_col,
+        checkout_card
+    ], scroll=ft.ScrollMode.AUTO, spacing=15)
+
     return ft.Container(
         padding=ft.padding.only(left=15, right=15, top=15, bottom=120),
-        content=ft.Column([
-            ft.Text("Shopping Cart", size=20, weight=ft.FontWeight.BOLD, color="#121212"),
-            items_col,
-            checkout_card
-        ], scroll=ft.ScrollMode.AUTO, spacing=15),
+        content=content_col,
         expand=True
     )

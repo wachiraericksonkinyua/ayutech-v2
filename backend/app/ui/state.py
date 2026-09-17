@@ -20,6 +20,7 @@ active_search_query = ""
 # Notification center + theme preference
 notifications = []
 theme_mode = "system"  # "system" | "light" | "dark"
+is_dark = False  # resolved brightness, refreshed by theme.apply_theme()
 
 # all_products = [
 #     {"id": "1", "name": "5-Speed Gearbox Assembly", "price": 65000, "category": "Gear Parts", "image_url": ""},

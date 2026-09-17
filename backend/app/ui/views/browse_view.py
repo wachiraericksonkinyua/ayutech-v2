@@ -1,5 +1,6 @@
 import flet as ft
 from app.ui.state import all_products, wishlist
+from app.ui import colors as C
 
 def build_browse_view(page: ft.Page, update_cart_callback, update_wishlist_callback, open_detail_callback):
     container = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=15)
@@ -29,7 +30,7 @@ def build_browse_view(page: ft.Page, update_cart_callback, update_wishlist_callb
                 img_url = p.get("image_url") or "https://raw.githubusercontent.com/wachiraericksonkinyua/ayutech/main/images/products/brakeparts/drum7l.png"
                 grid.controls.append(
                     ft.Container(
-                        bgcolor="#F9FAFB", border_radius=16, padding=10, border=ft.border.all(1, "#E5E7EB"),
+                        bgcolor=C.surface(), border_radius=16, padding=10, border=ft.border.all(1, C.divider()),
                         on_click=lambda e, item=p: open_detail_callback(item),
                         content=ft.Column([
                             ft.Stack([
@@ -43,11 +44,11 @@ def build_browse_view(page: ft.Page, update_cart_callback, update_wishlist_callb
                                     on_click=lambda e, item=p: update_wishlist_callback(item)
                                 )
                             ]),
-                            ft.Text(p["name"], size=12, weight=ft.FontWeight.BOLD, max_lines=2, color="#121212"),
+                            ft.Text(p["name"], size=12, weight=ft.FontWeight.BOLD, max_lines=2, color=C.text()),
                             ft.Row([
                                 ft.Text(f"KES {p['price']:,.0f}", size=12, color="#DC2626", weight=ft.FontWeight.BOLD),
                                 ft.IconButton(
-                                    ft.icons.ADD_SHOPPING_CART, icon_size=14, icon_color="white", bgcolor="#121212",
+                                    ft.icons.ADD_SHOPPING_CART, icon_size=14, icon_color="white", bgcolor=C.text(),
                                     style=ft.ButtonStyle(overlay_color={"hovered": "#DC2626"}),
                                     on_click=lambda e, item=p: update_cart_callback(item)
                                 )
@@ -65,8 +66,8 @@ def build_browse_view(page: ft.Page, update_cart_callback, update_wishlist_callb
 
     search_tf = ft.TextField(
         hint_text="Search auto parts (e.g. rack end, brake pads)...",
-        hint_style=ft.TextStyle(color="#9CA3AF", size=12),
-        bgcolor="#F3F4F6", border_radius=15, height=42, content_padding=10,
+        hint_style=ft.TextStyle(color=C.muted(), size=12),
+        bgcolor=C.surface_alt(), border_radius=15, height=42, content_padding=10,
         border_color="transparent", focused_border_color="#DC2626",
         on_change=on_search
     )
@@ -92,7 +93,7 @@ def build_browse_view(page: ft.Page, update_cart_callback, update_wishlist_callb
             ft.Container(
                 data=c,
                 content=ft.Text(c, color="white" if c == "All" else "#121212", size=11, weight=ft.FontWeight.BOLD),
-                bgcolor="#121212" if c == "All" else "#F3F4F6",
+                bgcolor=C.text() if c == "All" else "#F3F4F6",
                 padding=ft.padding.symmetric(horizontal=12, vertical=8),
                 border_radius=15,
                 on_click=lambda e, cat=c: select_cat(cat)
@@ -100,7 +101,7 @@ def build_browse_view(page: ft.Page, update_cart_callback, update_wishlist_callb
         )
 
     container.controls = [
-        ft.Container(padding=ft.padding.symmetric(horizontal=15), content=ft.Text("Browse Auto Spares", size=18, weight=ft.FontWeight.BOLD, color="#121212")),
+        ft.Container(padding=ft.padding.symmetric(horizontal=15), content=ft.Text("Browse Auto Spares", size=18, weight=ft.FontWeight.BOLD, color=C.text())),
         ft.Container(padding=ft.padding.symmetric(horizontal=15), content=search_tf),
         ft.Container(padding=ft.padding.symmetric(horizontal=15), content=cat_row),
         # Generous bottom padding to allow scrolling past the floating footer

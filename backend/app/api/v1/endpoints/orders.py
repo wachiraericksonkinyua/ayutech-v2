@@ -20,6 +20,7 @@ class CheckoutRequest(BaseModel):
     phone: str
     fulfillment: str
     location: str
+    delivery_address: str = ""
     payment_method: str
     items: List[OrderItem]
     total: float
@@ -67,6 +68,7 @@ async def process_checkout(request: Request, payload: CheckoutRequest):
             "phone": payload.phone,
             "fulfillment": payload.fulfillment,
             "location": payload.location,
+            "delivery_address": (payload.delivery_address or "").strip(),
             "payment_method": payload.payment_method,
             "total": payload.total,
             "total_amount": payload.total,
@@ -77,7 +79,13 @@ async def process_checkout(request: Request, payload: CheckoutRequest):
         try:
             supabase.table("orders").insert(order_record).execute()
         except Exception as db_err:
+            # delivery_address column may not exist yet on old DBs - retry without it
             print(f"Supabase DB insert error: {db_err}")
+            try:
+                order_record.pop("delivery_address", None)
+                supabase.table("orders").insert(order_record).execute()
+            except Exception as db_err2:
+                print(f"Supabase DB insert retry error: {db_err2}")
 
         return {
             "status": "success",
@@ -89,6 +97,28 @@ async def process_checkout(request: Request, payload: CheckoutRequest):
     except Exception as e:
         print(f"Checkout exception: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/track/{phone}")
+async def track_order_by_phone(phone: str):
+    """Public order tracking by phone number - no login required."""
+    try:
+        clean_phone = re.sub(r"[^0-9]", "", (phone or ""))
+        if len(clean_phone) < 9:
+            raise HTTPException(status_code=400, detail="Enter a valid phone number.")
+
+        res = supabase.table("orders").select(
+            "order_reference", "status", "total", "created_at",
+            "payment_method", "fulfillment", "items", "receipt_number",
+        ).or_(f"phone.eq.{clean_phone},customer_phone.eq.{clean_phone}").order("created_at", desc=True).execute()
+
+        orders_list = getattr(res, "data", None) or []
+        return {"status": "success", "orders": orders_list}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Track order error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/user/{identifier}")
 async def get_user_orders(identifier: str):

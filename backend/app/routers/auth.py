@@ -17,6 +17,7 @@ class ProfileUpdate(BaseModel):
     phone: str = ""
     avatar_url: str = ""
     banner_url: str = ""
+    addresses: list = []
 
 @router.post("/register")
 def register_user(payload: AuthPayload):

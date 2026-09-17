@@ -6,6 +6,8 @@ import httpx
 from app.ui.state import API_BASE_URL, cart, current_user_id, my_orders, user_info, wishlist
 from app.ui.notifications import notify, show_top_notification
 from app.ui import theme as theme_mod
+from app.ui.views.track_view import build_track_page
+from app.ui import colors as C
 import app.ui.state as app_state
 
 current_logged_in_user = None
@@ -31,7 +33,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
       hint_text='you@example.com',
       border_color='#DC2626',
       focused_border_color='#DC2626',
-      bgcolor='white',
+      bgcolor=C.field(),
       height=45,
       text_size=13,
       keyboard_type=ft.KeyboardType.EMAIL,
@@ -41,7 +43,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
       hint_text='Your secure password',
       border_color='#DC2626',
       focused_border_color='#DC2626',
-      bgcolor='white',
+      bgcolor=C.field(),
       height=45,
       text_size=13,
       password=True,
@@ -52,12 +54,12 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
   is_register_mode.current = False
 
   title_text = ft.Text(
-      'Welcome to AyuTech', size=20, weight=ft.FontWeight.BOLD, color='#121212'
+      'Welcome to AyuTech', size=20, weight=ft.FontWeight.BOLD, color=C.text()
   )
   subtitle_text = ft.Text(
       'Sign in to track orders & save garage spares.',
       size=12,
-      color='#6B7280',
+      color=C.soft(),
   )
   action_btn = ft.ElevatedButton(
       'Sign In',
@@ -67,7 +69,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
       style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
   )
   switch_btn = ft.TextButton(
-      'New here? Create an account', style=ft.ButtonStyle(color='#121212')
+      'New here? Create an account', style=ft.ButtonStyle(color=C.text())
   )
 
   def handle_login_success(user_data):
@@ -146,18 +148,30 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
     switch_tab_callback(4)
 
   # --- GUEST VIEW (PROMPT TO LOGIN) ---
+  def reset_to_hub_guest():
+    global profile_page_mode
+    profile_page_mode = ''
+    switch_tab_callback(4)
+
+  def open_track_guest():
+    global profile_page_mode
+    profile_page_mode = 'track'
+    switch_tab_callback(4)
+
   if not current_logged_in_user:
+    if profile_page_mode == 'track':
+      return build_track_page(page, reset_to_hub_guest)
     return ft.Container(
         padding=20,
-        bgcolor='#FFFFFF',
+        bgcolor=C.bg(),
         alignment=ft.alignment.center,
         expand=True,
         content=ft.Column([
             ft.Container(
                 padding=22,
-                bgcolor='#F9FAFB',
+                bgcolor=C.surface(),
                 border_radius=20,
-                border=ft.border.all(1, '#E5E7EB'),
+                border=ft.border.all(1, C.divider()),
                 width=360,
                 content=ft.Column([
                     ft.Row(
@@ -165,7 +179,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                             ft.Container(
                                 width=44,
                                 height=44,
-                                bgcolor='#FEE2E2',
+                                bgcolor=C.accent_soft(),
                                 border_radius=22,
                                 alignment=ft.alignment.center,
                                 content=ft.Icon(
@@ -185,13 +199,20 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                         ],
                         spacing=12,
                     ),
-                    ft.Divider(color='#E5E7EB', height=20),
+                    ft.Divider(color=C.divider(), height=20),
                     email_field,
                     password_field,
                     ft.Container(height=4),
                     action_btn,
                     ft.Container(
                         alignment=ft.alignment.center, content=switch_btn
+                    ),
+                    ft.Divider(color=C.divider(), height=12),
+                    ft.TextButton(
+                        'Track an order without signing in',
+                        icon=ft.icons.LOCAL_SHIPPING_OUTLINED,
+                        style=ft.ButtonStyle(color='#DC2626'),
+                        on_click=lambda e: open_track_guest(),
                     ),
                 ], spacing=12),
             )
@@ -215,13 +236,14 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
         'phone': '',
         'avatar_url': '',
         'banner_url': '',
+        'addresses': [],
     }
 
     avatar_preview = ft.Container(
         width=72,
         height=72,
         border_radius=36,
-        bgcolor='#FEE2E2',
+        bgcolor=C.accent_soft(),
         content=ft.Stack([
             ft.Container(
                 expand=True,
@@ -244,10 +266,10 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
     banner_preview = ft.Container(
         height=130,
         width=360,
-        bgcolor='#121212',
+        bgcolor=C.text(),
         alignment=ft.alignment.center,
         border_radius=ft.border_radius.only(bottom_left=20, bottom_right=20),
-        content=ft.Text('Add a banner photo', color='#9CA3AF', size=12),
+        content=ft.Text('Add a banner photo', color=C.muted(), size=12),
     )
 
     def refresh_image_previews():
@@ -268,7 +290,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
         )
       if profile_data.get('banner_url'):
         banner_preview.content = ft.Container(
-            expand=True, bgcolor='#121212', clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            expand=True, bgcolor=C.text(), clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
             content=ft.Image(src=profile_data['banner_url'], fit=ft.ImageFit.COVER, width=360, height=130)
         )
       try:
@@ -290,9 +312,13 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
               data = pr.json()
               if isinstance(data, dict):
                 for k in profile_data.keys():
-                  if data.get(k):
-                    profile_data[k] = str(data[k])
+                  if data.get(k) is not None:
+                    profile_data[k] = data[k] if isinstance(data[k], list) else str(data[k])
                 refresh_image_previews()
+                try:
+                  render_addresses()
+                except Exception:
+                  pass
         except Exception as e:
           print(f'Profile load error: {e}')
 
@@ -303,11 +329,62 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
       notify(page, f'Theme set to {theme_drop.value.title()}', '#16A34A', ft.icons.BRIGHTNESS_6_OUTLINED, title='Appearance')
 
     theme_drop = ft.Dropdown(
-        label='App Theme', value=app_state.theme_mode, border_color='#E5E7EB',
-        text_size=13, bgcolor='white', on_change=change_theme,
+        label='App Theme', value=app_state.theme_mode, border_color=C.input_border(),
+        text_size=13, bgcolor=C.field(), on_change=change_theme,
         options=[ft.dropdown.Option(m) for m in ['system', 'light', 'dark']],
         hint_text='Follow my PC / Phone',
     )
+
+    addresses_col = ft.Column(spacing=8)
+    addresses_input = ft.TextField(
+        label='Add a delivery address', hint_text='e.g. Diamond Plaza, 4th Floor, Moi Avenue, Nairobi',
+        border_color=C.input_border(), text_size=13, height=44, bgcolor=C.field(),
+    )
+
+    def render_addresses():
+      addresses_col.controls.clear()
+      addrs = [a for a in (profile_data.get('addresses') or []) if a]
+      if not addrs:
+        addresses_col.controls.append(
+            ft.Text('No saved addresses yet.', size=11, color=C.muted()),
+        )
+        return
+      for idx, addr in enumerate(addrs):
+        row = ft.Row([
+            ft.Icon(ft.icons.LOCATION_ON_OUTLINED, size=16, color='#DC2626'),
+            ft.Text(str(addr), size=12, color=C.text(), expand=True, max_lines=2),
+            ft.IconButton(
+                ft.icons.DELETE_OUTLINE, icon_size=16, icon_color='#DC2626',
+                tooltip='Remove address',
+                on_click=lambda e, i=idx: remove_address(i),
+            ),
+        ], spacing=8)
+        addresses_col.controls.append(
+            ft.Container(bgcolor=C.surface(), border_radius=10, padding=ft.padding.symmetric(horizontal=10, vertical=4),
+                         border=ft.border.all(1, C.divider()), content=row)
+        )
+
+    def remove_address(idx):
+      addrs = [a for a in (profile_data.get('addresses') or []) if a]
+      if 0 <= idx < len(addrs):
+        del addrs[idx]
+        profile_data['addresses'] = addrs
+      render_addresses()
+      page.update()
+
+    def add_address(e):
+      val = (addresses_input.value or '').strip()
+      if not val:
+        return
+      addrs = [a for a in (profile_data.get('addresses') or []) if a]
+      if val in addrs:
+        notify(page, 'Address already saved.', '#DC2626', ft.icons.ERROR_OUTLINE, title='Duplicate Address')
+        return
+      addrs.append(val)
+      profile_data['addresses'] = addrs
+      addresses_input.value = ''
+      render_addresses()
+      page.update()
 
     pending_upload = {'type': 'avatar'}
 
@@ -362,17 +439,17 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
       file_picker.pick_files(allow_multiple=False, allowed_extensions=['jpg', 'jpeg', 'png', 'webp', 'gif'])
 
     username_field = ft.TextField(label='Username', value=profile_data['username'], border_color='#DC2626',
-                                  text_size=13, height=44, bgcolor='white')
-    fullname_field = ft.TextField(label='Full Name', value=profile_data['full_name'], border_color='#E5E7EB',
-                                  text_size=13, height=44, bgcolor='white')
-    birthdate_field = ft.TextField(label='Date of Birth', value=profile_data['birth_date'], border_color='#E5E7EB',
-                                   hint_text='e.g. 1995-06-15', text_size=13, height=44, bgcolor='white')
-    phone_field = ft.TextField(label='Phone Number', value=profile_data['phone'], border_color='#E5E7EB',
-                               hint_text='e.g. 0712345678', text_size=13, height=44, bgcolor='white')
-    gender_drop = ft.Dropdown(label='Gender', value=profile_data['gender'] or None, border_color='#E5E7EB',
-                              text_size=13, bgcolor='white',
+                                  text_size=13, height=44, bgcolor=C.field())
+    fullname_field = ft.TextField(label='Full Name', value=profile_data['full_name'], border_color=C.input_border(),
+                                  text_size=13, height=44, bgcolor=C.field())
+    birthdate_field = ft.TextField(label='Date of Birth', value=profile_data['birth_date'], border_color=C.input_border(),
+                                   hint_text='e.g. 1995-06-15', text_size=13, height=44, bgcolor=C.field())
+    phone_field = ft.TextField(label='Phone Number', value=profile_data['phone'], border_color=C.input_border(),
+                               hint_text='e.g. 0712345678', text_size=13, height=44, bgcolor=C.field())
+    gender_drop = ft.Dropdown(label='Gender', value=profile_data['gender'] or None, border_color=C.input_border(),
+                              text_size=13, bgcolor=C.field(),
                               options=[ft.dropdown.Option(g) for g in ['Male', 'Female', 'Other']])
-    email_display = ft.Text(logged_in_email, size=12, color='#6B7280')
+    email_display = ft.Text(logged_in_email, size=12, color=C.soft())
 
     def save_profile(e):
       payload = {
@@ -383,6 +460,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
           'phone': (phone_field.value or '').strip(),
           'avatar_url': profile_data.get('avatar_url', ''),
           'banner_url': profile_data.get('banner_url', ''),
+          'addresses': list(profile_data.get('addresses') or []),
       }
       try:
         res = httpx.patch(
@@ -402,11 +480,12 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
       except Exception as err:
         notify(page, f'Save error: {err}', '#DC2626', ft.icons.ERROR_OUTLINE, title='Save Failed')
 
+    render_addresses()
     load_profile_async()
 
     return ft.Container(
         padding=0,
-        bgcolor='#FFFFFF',
+        bgcolor=C.bg(),
         expand=True,
         content=ft.Column([
             banner_preview,
@@ -431,40 +510,52 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                 ),
             ]),
             ft.Row([
-                ft.IconButton(ft.icons.ARROW_BACK, tooltip='Back to Hub', icon_color='#121212',
+                ft.IconButton(ft.icons.ARROW_BACK, tooltip='Back to Hub', icon_color=C.text(),
                               on_click=lambda e: back_to_hub()),
-                ft.Text('Edit Profile', size=20, weight=ft.FontWeight.BOLD, color='#121212'),
+                ft.Text('Edit Profile', size=20, weight=ft.FontWeight.BOLD, color=C.text()),
                 ft.Container(width=48),
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ft.Container(
                 padding=ft.padding.only(left=15, right=15, bottom=120),
                 content=ft.Column([
                     ft.Container(
-                        bgcolor='#F9FAFB', padding=15, border_radius=15, border=ft.border.all(1, '#E5E7EB'),
+                        bgcolor=C.surface(), padding=15, border_radius=15, border=ft.border.all(1, C.divider()),
                         content=ft.Column([
                             ft.Row([ft.Icon(ft.icons.PHOTO_CAMERA_OUTLINED, color='#DC2626', size=18),
-                                    ft.Text('Profile Photo', size=13, weight=ft.FontWeight.BOLD, color='#121212'),
+                                    ft.Text('Profile Photo', size=13, weight=ft.FontWeight.BOLD, color=C.text()),
                                     ft.Container(width=8),
                                     ft.OutlinedButton('Upload Photo', icon=ft.icons.UPLOAD_FILE, height=32, text_size=12,
                                                        on_click=pick_avatar)], spacing=4),
-                            ft.Divider(color='#E5E7EB', height=16),
+                            ft.Divider(color=C.divider(), height=16),
                             ft.Row([ft.Icon(ft.icons.PHOTO_OUTLINED, color='#DC2626', size=18),
-                                    ft.Text('Banner Photo', size=13, weight=ft.FontWeight.BOLD, color='#121212'),
+                                    ft.Text('Banner Photo', size=13, weight=ft.FontWeight.BOLD, color=C.text()),
                                     ft.Container(width=8),
                                     ft.OutlinedButton('Upload Banner', icon=ft.icons.UPLOAD_FILE, height=32, text_size=12,
                                                        on_click=pick_banner)], spacing=4),
                         ], spacing=6),
                     ),
-                    ft.Text('Account Email', size=11, color='#6B7280'),
+                    ft.Text('Account Email', size=11, color=C.soft()),
                     email_display,
-                    ft.Divider(color='#E5E7EB', height=16),
+                    ft.Divider(color=C.divider(), height=16),
                     username_field,
                     fullname_field,
                     birthdate_field,
                     phone_field,
                     gender_drop,
-                    ft.Divider(color='#E5E7EB', height=16),
+                    ft.Divider(color=C.divider(), height=16),
                     theme_drop,
+                    ft.Divider(color=C.divider(), height=16),
+                    ft.Text('Saved Addresses', size=13, weight=ft.FontWeight.BOLD, color=C.text()),
+                    addresses_col,
+                    ft.Row([
+                        addresses_input,
+                        ft.Container(
+                            bgcolor='#DC2626', border_radius=10,
+                            alignment=ft.alignment.center,
+                            content=ft.IconButton(ft.icons.ADD, icon_color='white', tooltip='Save address', on_click=add_address),
+                        ),
+                    ], spacing=8, tight=True),
+                    ft.Text('Used at checkout for delivery orders.', size=11, color=C.soft()),
                     ft.Container(height=6),
                     ft.ElevatedButton(
                         'Save Changes', width=380, height=45, bgcolor='#DC2626', color='white',
@@ -486,9 +577,9 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
               padding=40,
               alignment=ft.alignment.center,
               content=ft.Column([
-                  ft.Icon(ft.icons.FAVORITE_BORDER, size=56, color='#9CA3AF'),
-                  ft.Text('Your wishlist is empty.', size=14, color='#6B7280'),
-                  ft.Text('Tap the heart on any part to save it here.', size=12, color='#9CA3AF'),
+                  ft.Icon(ft.icons.FAVORITE_BORDER, size=56, color=C.muted()),
+                  ft.Text('Your wishlist is empty.', size=14, color=C.soft()),
+                  ft.Text('Tap the heart on any part to save it here.', size=12, color=C.muted()),
               ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
           )
       )
@@ -498,20 +589,20 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
             'https://raw.githubusercontent.com/wachiraericksonkinyua/ayutech/main/images/products/brakeparts/drum7l.png'
         wishlist_col.controls.append(
             ft.Container(
-                bgcolor='#F9FAFB',
+                bgcolor=C.surface(),
                 border_radius=14,
                 padding=10,
-                border=ft.border.all(1, '#E5E7EB'),
+                border=ft.border.all(1, C.divider()),
                 on_click=lambda e, it=item: open_wishlist_detail(it),
                 content=ft.Row([
                     ft.Container(
-                        width=52, height=52, border_radius=10, bgcolor='white',
+                        width=52, height=52, border_radius=10, bgcolor=C.field(),
                         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                         content=ft.Image(src=img_url, fit=ft.ImageFit.COVER, width=52, height=52),
                     ),
                     ft.Column([
                         ft.Text(item.get('name', 'Product'), size=12, weight=ft.FontWeight.BOLD,
-                                color='#121212', max_lines=1),
+                                color=C.text(), max_lines=1),
                         ft.Text(f"KES {float(item.get('price', 0)):,.0f}", size=12, color='#DC2626',
                                 weight=ft.FontWeight.BOLD),
                     ], expand=True, spacing=2),
@@ -519,7 +610,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                         ft.icons.FAVORITE, icon_color='#DC2626', icon_size=18, tooltip='Remove',
                         on_click=lambda e, it=item: remove_wishlist_item(it),
                     ),
-                    ft.Icon(ft.icons.ARROW_FORWARD_IOS, size=14, color='#9CA3AF'),
+                    ft.Icon(ft.icons.ARROW_FORWARD_IOS, size=14, color=C.muted()),
                 ], spacing=10),
             )
         )
@@ -537,17 +628,17 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
 
     return ft.Container(
         padding=ft.padding.only(left=15, right=15, top=15, bottom=120),
-        bgcolor='#FFFFFF',
+        bgcolor=C.bg(),
         expand=True,
         content=ft.Column([
             ft.Row([
-                ft.IconButton(ft.icons.ARROW_BACK, tooltip='Back to Hub', icon_color='#121212',
+                ft.IconButton(ft.icons.ARROW_BACK, tooltip='Back to Hub', icon_color=C.text(),
                               on_click=lambda e: back_to_hub()),
-                ft.Text('My Wishlist', size=20, weight=ft.FontWeight.BOLD, color='#121212'),
+                ft.Text('My Wishlist', size=20, weight=ft.FontWeight.BOLD, color=C.text()),
                 ft.Container(width=48),
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ft.Text(f'{len(wishlist)} saved part' + ('s' if len(wishlist) != 1 else ''),
-                    size=12, color='#6B7280'),
+                    size=12, color=C.soft()),
             ft.Container(height=4),
             wishlist_col,
         ], spacing=8, scroll=ft.ScrollMode.AUTO),
@@ -568,17 +659,25 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
     profile_page_mode = 'wishlist'
     switch_tab_callback(4)
 
+  def open_track_page():
+    global profile_page_mode
+    profile_page_mode = 'track'
+    switch_tab_callback(4)
+
   if profile_page_mode == 'settings':
     return build_settings_page()
 
   if profile_page_mode == 'wishlist':
     return build_wishlist_page()
 
+  if profile_page_mode == 'track':
+    return build_track_page(page, back_to_hub)
+
   # ---------------- MAIN HUB DASHBOARD ----------------
   logged_in_email = current_logged_in_user.get('email', 'Customer')
 
   profile_header = ft.Container(
-      bgcolor='#121212',
+      bgcolor=C.text(),
       border_radius=ft.border_radius.only(bottom_left=24, bottom_right=24),
       padding=20,
       content=ft.Column([
@@ -592,7 +691,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
               ft.Row([
                   ft.IconButton(
                       icon=ft.icons.SETTINGS_OUTLINED,
-                      icon_color='#9CA3AF',
+                      icon_color=C.muted(),
                       tooltip='Profile Settings',
                       on_click=lambda e: open_settings(),
                   ),
@@ -627,7 +726,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                       weight=ft.FontWeight.BOLD,
                       color='white',
                   ),
-                  ft.Text(logged_in_email, size=11, color='#9CA3AF'),
+                  ft.Text(logged_in_email, size=11, color=C.muted()),
               ], spacing=2),
           ], spacing=14, on_click=lambda e: open_settings()),
       ], spacing=10),
@@ -635,17 +734,17 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
 
   def hub_tile(title, subtitle, icon, badge, on_click):
     return ft.Container(
-        bgcolor='#F9FAFB',
+        bgcolor=C.surface(),
         border_radius=12,
         padding=12,
-        border=ft.border.all(1, '#E5E7EB'),
+        border=ft.border.all(1, C.divider()),
         on_click=on_click,
         content=ft.Row([
             ft.Row([
                 ft.Container(
                     width=36,
                     height=36,
-                    bgcolor='#FEE2E2',
+                    bgcolor=C.accent_soft(),
                     border_radius=10,
                     alignment=ft.alignment.center,
                     content=ft.Icon(icon, color='#DC2626', size=18),
@@ -655,9 +754,9 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                         title,
                         size=13,
                         weight=ft.FontWeight.BOLD,
-                        color='#121212',
+                        color=C.text(),
                     ),
-                    ft.Text(subtitle, size=11, color='#6B7280'),
+                    ft.Text(subtitle, size=11, color=C.soft()),
                 ], spacing=2),
             ], spacing=12),
             ft.Row([
@@ -669,13 +768,13 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                         badge,
                         size=10,
                         weight=ft.FontWeight.BOLD,
-                        color='#121212',
+                        color=C.text(),
                     ),
                 )
                 if badge
                 else ft.Container(),
                 ft.Icon(
-                    ft.icons.ARROW_FORWARD_IOS, size=14, color='#9CA3AF'
+                    ft.icons.ARROW_FORWARD_IOS, size=14, color=C.muted()
                 ),
             ], spacing=6),
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
@@ -683,11 +782,11 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
 
   nav_tiles = ft.Column([
       hub_tile(
-          'Track Orders',
-          'Check M-Pesa status & receipts',
+          'Track My Order',
+          'Check M-Pesa status by phone',
           ft.icons.LOCAL_SHIPPING_OUTLINED,
           'Live',
-          lambda e: switch_tab_callback(3),
+          lambda e: open_track_page(),
       ),
       hub_tile(
           'Shopping Cart',
@@ -734,13 +833,13 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
       wishlist_container.controls.append(
           ft.Container(
               padding=14,
-              bgcolor='#F9FAFB',
+              bgcolor=C.surface(),
               border_radius=12,
-              border=ft.border.all(1, '#E5E7EB'),
+              border=ft.border.all(1, C.divider()),
               content=ft.Text(
                   'No saved spare parts in your wishlist yet.',
                   size=12,
-                  color='#6B7280',
+                  color=C.soft(),
               ),
           )
       )
@@ -752,13 +851,13 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
       wishlist_container.controls.append(
           ft.Container(
               padding=10,
-              bgcolor='white',
+              bgcolor=C.field(),
               border_radius=10,
-              border=ft.border.all(1, '#E5E7EB'),
+              border=ft.border.all(1, C.divider()),
               on_click=lambda e, it=item: (open_detail_callback(it) if open_detail_callback else None),
               content=ft.Row([
                   ft.Container(
-                      width=44, height=44, border_radius=8, bgcolor='#F3F4F6',
+                      width=44, height=44, border_radius=8, bgcolor=C.surface_alt(),
                       clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                       content=ft.Image(src=img_url, fit=ft.ImageFit.COVER, width=44, height=44),
                   ),
@@ -767,7 +866,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
                           item.get('name', 'Product'),
                           size=12,
                           weight=ft.FontWeight.BOLD,
-                          color='#121212',
+                          color=C.text(),
                           max_lines=1,
                       ),
                       ft.Text(
@@ -794,7 +893,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
 
   return ft.Container(
       padding=ft.padding.only(left=15, right=15, top=0, bottom=120),
-      bgcolor='#FFFFFF',
+      bgcolor=C.bg(),
       expand=True,
       content=ft.Column([
           profile_header,
@@ -803,16 +902,16 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
               'Garage Dashboard',
               size=14,
               weight=ft.FontWeight.BOLD,
-              color='#121212',
+              color=C.text(),
           ),
           nav_tiles,
-          ft.Divider(color='#E5E7EB', height=20),
+          ft.Divider(color=C.divider(), height=20),
           ft.Row([
               ft.Text(
                   'Saved Spares (Wishlist)',
                   size=14,
                   weight=ft.FontWeight.BOLD,
-                  color='#121212',
+                  color=C.text(),
               ),
               ft.TextButton(
                   'View All',

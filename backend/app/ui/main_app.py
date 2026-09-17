@@ -179,7 +179,12 @@ def main(page: ft.Page):
     def open_product_detail(product):
         floating_footer.visible = False
         draggable_ai.visible = False
-        content_area.content = build_product_detail_view(page, product, lambda: exit_detail_view(), update_cart)
+        content_area.content = build_product_detail_view(
+            page, product, lambda: exit_detail_view(), update_cart,
+            ask_fitment_callback=lambda p: open_ai_chat(
+                initial=f"Check fitment: is {p.get('name', 'this part')} (KES {float(p.get('price', 0)):,.0f}) compatible and in stock? Tell me which vehicle models it fits."
+            ),
+        )
         page.update()
 
     def exit_detail_view():
@@ -188,7 +193,7 @@ def main(page: ft.Page):
         switch_tab(0)
 
     # --- High-Contrast AI Chat Drawer with Memory & Direct Add-to-Cart ---
-    def open_ai_chat(e=None):
+    def open_ai_chat(e=None, initial=None):
         page_ref = page
         chat_messages = ft.Column(
             scroll=ft.ScrollMode.AUTO,
@@ -323,6 +328,10 @@ def main(page: ft.Page):
 
         send_button.on_click = send_ai_message
         user_input.on_submit = send_ai_message
+
+        if initial:
+            user_input.value = initial
+            send_ai_message(None)
 
         bottom_sheet = ft.BottomSheet(
             dismissible=False,

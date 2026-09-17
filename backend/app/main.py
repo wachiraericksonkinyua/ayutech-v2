@@ -7,6 +7,7 @@ from app.api.v1.endpoints import (
     orders,
     payments,
     products,
+    reviews,
     whatsapp,
     ai
 )
@@ -33,6 +34,7 @@ app.include_router(payments.router, prefix="/api/v1/payments", tags=["M-Pesa Dar
 app.include_router(products.router, prefix="/api/v1/products", tags=["Product Catalog"])
 app.include_router(whatsapp.router, prefix="/api/v1/whatsapp", tags=["WhatsApp Automation"])
 app.include_router(ai.router, prefix="/api/v1/ai", tags=["AI Assistant"])
+app.include_router(reviews.router, prefix="/api/v1/reviews", tags=["Product Reviews"])
 from app.routers import auth
 app.include_router(auth.router, prefix="/api/v1", tags=["Auth"])
 @app.get("/")
