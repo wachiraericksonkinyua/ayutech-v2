@@ -1,0 +1,172 @@
+name: Build AyuTech Client
+
+# Builds the Flet customer client into downloadable Android / desktop
+# packages and attaches them to a GitHub Release.
+#
+# Trigger: push a version tag (e.g. `git tag v2.0.0 && git push --tags`)
+# or run it manually from the Actions tab.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-client-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLET_VERSION: "0.22.1"
+  FLUTTER_VERSION: "3.19.6"
+
+jobs:
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install Flet CLI
+        run: pip install "flet==${{ env.FLET_VERSION }}"
+
+      - name: Build APK
+        working-directory: backend
+        run: |
+          flet build apk . \
+            --project ayutech \
+            --org co.ke.ayutech \
+            --build-version 2.0.0 \
+            --exclude venv .env requirements.txt
+
+      - name: Give the APK a friendly name
+        working-directory: backend
+        run: |
+          apk="$(ls build/apk/*.apk | head -n1)"
+          mv "$apk" build/apk/ayutech.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ayutech-android
+          path: backend/build/apk/ayutech.apk
+          if-no-files-found: error
+
+  linux:
+    name: Linux desktop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Linux desktop build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libblkid-dev
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install Flet CLI
+        run: pip install "flet==${{ env.FLET_VERSION }}"
+
+      - name: Build Linux app
+        working-directory: backend
+        run: |
+          flet build linux . \
+            --project ayutech \
+            --org co.ke.ayutech \
+            --build-version 2.0.0 \
+            --exclude venv .env requirements.txt
+
+      - name: Package
+        working-directory: backend
+        run: tar -czf ayutech-linux-x64.tar.gz -C build/linux .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ayutech-linux
+          path: backend/ayutech-linux-x64.tar.gz
+          if-no-files-found: error
+
+  windows:
+    name: Windows desktop
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install Flet CLI
+        run: pip install "flet==${{ env.FLET_VERSION }}"
+
+      - name: Build Windows app
+        working-directory: backend
+        run: >
+          flet build windows .
+          --project ayutech
+          --org co.ke.ayutech
+          --build-version 2.0.0
+          --exclude venv .env requirements.txt
+
+      - name: Package
+        working-directory: backend
+        shell: pwsh
+        run: Compress-Archive -Path build/windows/* -DestinationPath ayutech-windows-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ayutech-windows
+          path: backend/ayutech-windows-x64.zip
+          if-no-files-found: error
+
+  release:
+    name: Attach builds to release
+    needs: [android, linux, windows]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/**/*.apk
+            dist/**/*.tar.gz
+            dist/**/*.zip
+          generate_release_notes: true

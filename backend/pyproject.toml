@@ -1,0 +1,23 @@
+# backend/pyproject.toml
+#
+# Dependency manifest used by `flet build` when packaging the AyuTech customer
+# client (Android / desktop / web).
+#
+# NOTE: serious_python prefers requirements.txt over pyproject.toml, so the
+# build command MUST pass `--exclude requirements.txt` (the FastAPI server
+# requirements) for these light client-only dependencies to be used. This is
+# handled by .github/workflows/build-app.yml.
+
+[project]
+name = "ayutech"
+version = "2.0.0"
+description = "AyuTech Motors customer shopping client"
+requires-python = ">=3.8"
+dependencies = [
+    "flet==0.22.1",
+    "httpx==0.28.1",
+]
+
+[tool.flet]
+product = "AyuTech Motors"
+org = "co.ke.ayutech"
