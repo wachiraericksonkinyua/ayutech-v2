@@ -29,28 +29,37 @@ def notify(page: ft.Page, message: str, color: str = "#121212", icon: str = None
 
 def show_top_notification(page: ft.Page, message: str, color: str = "#121212", icon: str = None,
                           title: str = None, duration: float = 2.6):
-    """Show a slim notification toast pinned to the top of the window, stacking under any active toasts."""
+    """Show a compact toast below the top header, stacking cleanly on the right side."""
+    TOP_START = 62
+    TOAST_HEIGHT = 54
+    GAP = 8
+    WIDTH = 296
+
+    if len(_active_toasts) >= 4:
+        return
+
     if title:
         toast_content = ft.Row([
             ft.Icon(icon or ft.icons.CHECK_CIRCLE_OUTLINE, color="white", size=16),
             ft.Column([
                 ft.Text(title, color="white", size=11, weight=ft.FontWeight.BOLD),
-                ft.Text(message, color="white", size=12, weight=ft.FontWeight.BOLD,
-                        max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
-            ], spacing=0, tight=True),
+                ft.Text(message, color="white", size=11,
+                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+            ], spacing=0, tight=True, expand=True),
         ], spacing=8, tight=True)
     else:
         toast_content = ft.Row([
             ft.Icon(icon or ft.icons.CHECK_CIRCLE_OUTLINE, color="white", size=16),
-            ft.Text(message, color="white", size=12, weight=ft.FontWeight.BOLD,
-                    max_lines=3, overflow=ft.TextOverflow.ELLIPSIS),
+            ft.Text(message, color="white", size=11,
+                    max_lines=2, overflow=ft.TextOverflow.ELLIPSIS, expand=True),
         ], spacing=8, tight=True)
 
     toast = ft.Container(
-        left=15,
-        right=15,
-        top=14 + len(_active_toasts) * 64,
-        padding=ft.padding.symmetric(horizontal=14, vertical=10),
+        right=12,
+        top=TOP_START + len(_active_toasts) * (TOAST_HEIGHT + GAP),
+        width=WIDTH,
+        height=TOAST_HEIGHT,
+        padding=ft.padding.symmetric(horizontal=12, vertical=8),
         bgcolor=color,
         border_radius=12,
         shadow=ft.BoxShadow(blur_radius=14, color="#40000000"),
@@ -59,18 +68,19 @@ def show_top_notification(page: ft.Page, message: str, color: str = "#121212", i
 
     def _relayout():
         for i, (other, _) in enumerate(_active_toasts):
-            other.top = 14 + i * 64
+            other.top = TOP_START + i * (TOAST_HEIGHT + GAP)
 
     def close():
         try:
             if toast in page.overlay:
                 page.overlay.remove(toast)
-            if toast in [t for t, _ in _active_toasts]:
-                _active_toasts[:] = [t for t, _ in _active_toasts if t is not toast]
-                _relayout()
-                page.update()
+            _active_toasts[:] = [t for t, _ in _active_toasts if t is not toast]
+            _relayout()
+            page.update()
         except Exception:
             pass
+
+    toast.on_click = lambda e: close()
 
     try:
         page.overlay.append(toast)
@@ -81,7 +91,10 @@ def show_top_notification(page: ft.Page, message: str, color: str = "#121212", i
         return
 
     def dismiss():
-        threading.Event().wait(duration)
-        close()
+        try:
+            threading.Event().wait(duration)
+            close()
+        except Exception:
+            pass
 
     threading.Thread(target=dismiss, daemon=True).start()

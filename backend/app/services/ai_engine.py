@@ -266,6 +266,50 @@ async def generate_grounded_reply(customer_phone: str, user_message: str, image_
 # 2. IN-APP MOBILE AI ASSISTANT SERVICE
 # ==============================================================================
 
+_catalog_cache = {"ts": 0.0, "products": []}
+
+def _cached_catalog(max_age: float = 60.0) -> list:
+    """Product catalog with a 60s cache so the assistant never blocks on a full-table fetch."""
+    now = datetime.utcnow().timestamp()
+    if _catalog_cache["products"] and now - _catalog_cache["ts"] < max_age:
+        return _catalog_cache["products"]
+    try:
+        res = supabase.table("products").select(
+            "id, name, category, price, stock_quantity, image_url"
+        ).execute()
+        products = getattr(res, "data", []) or []
+        if products:
+            _catalog_cache["ts"] = now
+            _catalog_cache["products"] = products
+            return products
+    except Exception as e:
+        print(f"Catalog sync error: {e}")
+        _catalog_cache["ts"] = 0
+    return _catalog_cache["products"]
+
+FILLER_WORDS = {
+    "check", "fitment", "compatible", "compatibility", "in", "is", "it",
+    "and", "the", "a", "an", "to", "for", "me", "my", "tell", "which",
+    "vehicle", "vehicles", "models", "model", "does", "this", "that",
+    "what", "are", "how", "much", "stock", "price", "cost", "please",
+    "on", "of", "need", "want", "their", "ors", "or", "parts", "part",
+    "with", "from", "about", "am", "asking",
+}
+
+def _fitment_search_terms(query: str) -> list:
+    q = query.lower()
+    q = q.replace("check fitment", " ").replace("is this part", " ").replace("compatible and in stock", " ")
+    tokens = [w.strip(".,!?()[]").lower() for w in q.split()
+              if len(w.strip(".,!?()[]")) > 1 and w.strip(".,!?()[]") not in FILLER_WORDS]
+    if not tokens:
+        tokens = [w for w in q.split() if len(w) > 2]
+    for special, extra in [("frontlight", ["front", "light"]),
+                           ("gearbox", ["gear", "box"]),
+                           ("airfilter", ["air", "filter"])]:
+        if special in q:
+            tokens.extend(extra)
+    return list(dict.fromkeys(tokens))[:8]
+
 async def generate_fitment_response(messages: list) -> dict:
     if not messages:
         return {"reply": "Please ask a question about our spare parts.", "products": []}
@@ -276,23 +320,15 @@ async def generate_fitment_response(messages: list) -> dict:
     matched_products = []
     matched_lines = []
     try:
-        res = supabase.table("products").select("id, name, category, price, stock_quantity, image_url").execute()
-        all_products = getattr(res, "data", []) or []
-        
-        q_lower = latest_user_query.lower()
-        search_terms = [w for w in q_lower.split() if len(w) > 2]
-        
-        if "frontlight" in q_lower or "front light" in q_lower:
-            search_terms.extend(["front", "light"])
-        if "gearbox" in q_lower:
-            search_terms.append("gear box")
+        all_products = _cached_catalog()
+        search_terms = _fitment_search_terms(latest_user_query)
 
         for p in all_products:
             p_name = str(p.get("name", "")).lower()
             p_cat = str(p.get("category", "")).lower()
-            
+
             score = sum(1 for term in search_terms if term in p_name or term in p_cat)
-            if score > 0 or any(part in p_name for part in ["7l", "1kd", "2kd", "hiace"] if part in q_lower):
+            if score > 0 or any(part in p_name for part in ["7l", "1kd", "2kd", "hiace"] if part in latest_user_query):
                 matched_products.append(p)
                 matched_lines.append(
                     f"- {p.get('name')}: KES {float(p.get('price', 0)):,.0f} ({p.get('stock_quantity', 0)} in stock)"
@@ -301,7 +337,7 @@ async def generate_fitment_response(messages: list) -> dict:
         if not matched_lines:
             generic_queries = ["product", "products", "catalog", "catalogue", "stock",
                                "what do you have", "list", "parts", "spares", "inventory"]
-            if any(g in q_lower for g in generic_queries):
+            if any(g in latest_user_query for g in generic_queries):
                 matched_lines = [
                     f"- {p.get('name')}: KES {float(p.get('price', 0)):,.0f} ({p.get('stock_quantity', 0)} in stock)"
                     for p in all_products[:8]
@@ -340,7 +376,7 @@ Relevant Inventory:
     
     if groq_key:
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=16.0) as client:
                 resp = await client.post(
                     "https://api.groq.com/openai/v1/chat/completions",
                     headers={
@@ -363,6 +399,10 @@ Relevant Inventory:
                     print(f"❌ Groq API Error Status {resp.status_code}: {resp.text}")
         except Exception as err:
             print(f"❌ Groq Request Exception: {err}")
+            reply_text = (
+                "I can still help! For the latest stock and exact fitment, "
+                "browse the catalog or message the store on WhatsApp."
+            )
     
     # Return top matching products max for instant add-to-cart buttons
     return {

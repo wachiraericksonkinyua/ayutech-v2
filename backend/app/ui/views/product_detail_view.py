@@ -137,7 +137,15 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
         threading.Thread(target=_go, daemon=True).start()
 
     def open_review_dialog(e):
-        star_icons = [ft.Icon(ft.icons.STAR_OUTLINE, color=C.accent(), size=30) for _ in range(5)]
+        star_buttons = [
+            ft.IconButton(
+                icon=ft.icons.STAR_OUTLINE,
+                icon_color=C.accent(),
+                icon_size=30,
+                tooltip=f"{i + 1} out of 5 stars",
+            )
+            for i in range(5)
+        ]
         picked = {"rating": 0}
         comment_field = ft.TextField(
             label="Your feedback", hint_text="How was the part / service?", multiline=True,
@@ -146,13 +154,13 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
 
         def pick_star(idx):
             picked["rating"] = idx + 1
-            for i, ic in enumerate(star_icons):
-                ic.name = ft.icons.STAR if i <= idx else ft.icons.STAR_OUTLINE
-                ic.color = C.accent()
+            for i, b in enumerate(star_buttons):
+                b.icon = ft.icons.STAR if i <= idx else ft.icons.STAR_OUTLINE
+                b.icon_color = C.accent()
             page.update()
 
-        for i, ic in enumerate(star_icons):
-            ic.on_click = lambda ev, idx=i: pick_star(idx)
+        for i, b in enumerate(star_buttons):
+            b.on_click = lambda ev, idx=i: pick_star(idx)
 
         close_btn = ft.TextButton("Cancel")
 
@@ -191,7 +199,7 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
             shape=ft.RoundedRectangleBorder(radius=18),
             title=ft.Text("Rate this Part", size=16, weight=ft.FontWeight.BOLD, color=C.text()),
             content=ft.Column([
-                ft.Row(star_icons, spacing=4),
+                ft.Row(star_buttons, spacing=2),
                 ft.Text("Only verified buyers can review.", size=11, color=C.muted()),
                 comment_field,
             ], tight=True, spacing=10),
@@ -239,6 +247,7 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
     return ft.Column([
         header_bar,
         ft.Container(
+            expand=True,
             bgcolor=C.bg(),
             padding=ft.padding.symmetric(horizontal=15),
             content=ft.Column([image_preview, details_content], scroll=ft.ScrollMode.AUTO, expand=True)

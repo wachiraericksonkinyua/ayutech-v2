@@ -303,14 +303,17 @@ def main(page: ft.Page):
             chat_messages.controls.append(make_bubble(msg, is_user=True))
             user_input.value = ""
             user_input.disabled = True
+            thinking_bubble = make_bubble("Checking our catalog and stock...", is_user=False)
+            chat_messages.controls.append(thinking_bubble)
             scroll_to_latest()
 
             suggested_prods = []
+            ai_reply = ""
             try:
                 res = httpx.post(
                     f"{API_BASE_URL}/ai/chat",
                     json={"messages": conversation_history},
-                    timeout=12
+                    timeout=18
                 )
                 if res.status_code == 200:
                     data = res.json()
@@ -321,6 +324,8 @@ def main(page: ft.Page):
             except Exception:
                 ai_reply = "Connection timeout. Please verify backend is active."
 
+            if thinking_bubble in chat_messages.controls:
+                chat_messages.controls.remove(thinking_bubble)
             conversation_history.append({"role": "assistant", "content": ai_reply})
             chat_messages.controls.append(make_bubble(ai_reply, is_user=False, suggested_products=suggested_prods))
             user_input.disabled = False
