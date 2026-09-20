@@ -7,9 +7,11 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Request, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, EmailStr, Field
+from typing import Any, cast    
 from app.db.supabase_client import supabase
 from app.core.rate_limiter import limiter
 from app.core.auth_deps import get_current_user, require_owner
+
 import uuid
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -364,12 +366,18 @@ def reset_password(request: Request, payload: ResetPasswordPayload):
 
 
 def _mirror_customer(user_id: str, email: str) -> None:
-    """Mirror an OAuth/Google user into the customers table so profile/orders work."""
+    """Mirror an OAuth/Google user into the customers table so profile/orders work.
+
+    New Google sign-ins have no profile row yet, so the profile page would 404.
+    Upsert on the primary key and seed a default username; existing rows keep
+    their other columns (an upsert only writes the columns we pass).
+    """
+    email = str(email or "").strip()
     try:
-        supabase.table("customers").upsert({
-            "id": str(user_id),
-            "email": email,
-        }).execute()
+        row = {"id": str(user_id), "email": email}
+        if email:
+            row["username"] = email.split("@")[0]
+        supabase.table("customers").upsert(row, on_conflict="id").execute()
     except Exception as db_err:
         print(f"OAuth customer mirror warning: {db_err}")
 
@@ -623,22 +631,23 @@ async def upload_profile_image(
         folder = "avatars" if type == "avatar" else "banners"
         file_path = f"{folder}/{unique_filename}"
 
-        # Use a scoped client or set the session so storage RLS sees the user
-        client = supabase
-        if token:
-            try:
-                client.auth.set_session(token, "") # or pass user token context
-            except Exception:
-                pass
+        # Forward the caller's Bearer token on the storage request itself so the
+        # bucket's RLS policies see an authenticated user. We deliberately do not
+        # mutate the shared global client's session (that leaks across requests).
+        # Standard storage options accepted by Supabase storage-py
+        # Plain dictionary options for the storage upload call
+        file_opts = {
+            "content-type": content_type or "image/jpeg",
+        }
 
         def _try_upload(bucket: str):
-            client.storage.from_(bucket).upload(
+            supabase.storage.from_(bucket).upload(
                 path=file_path,
                 file=contents,
-                file_options={"content-type": content_type or "image/jpeg"}
+                file_options=cast(Any, file_opts),
             )
-            return client.storage.from_(bucket).get_public_url(file_path)
-
+            return supabase.storage.from_(bucket).get_public_url(file_path)
+        
         image_url = _try_upload("profile-images")
         return {"image_url": image_url, "type": type}
     except HTTPException:
