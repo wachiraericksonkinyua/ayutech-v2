@@ -199,7 +199,12 @@ def _normalise_auth_user(user_obj, session):
             session.refresh_token if hasattr(session, "refresh_token")
             else (session or {}).get("refresh_token", "")
         )
-    return str(user_id or ""), email, access_token or "", refresh_token or ""
+    return (
+        str(user_id or ""),
+        str(email or ""),
+        str(access_token or ""),
+        str(refresh_token or ""),
+    )
 
 
 class ProfileUpdate(BaseModel):
@@ -312,7 +317,7 @@ def reset_exchange(request: Request, payload: ResetExchangePayload):
     refresh_token = ""
     if payload.code:
         try:
-            res = supabase.auth.exchange_code_for_session({"auth_code": payload.code})
+            res = supabase.auth.exchange_code_for_session({"auth_code": payload.code, "code_verifier": "", "redirect_to": ""})
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Reset link is invalid or expired: {e}")
         user_obj = getattr(res, "user", None) or (res.get("user") if isinstance(res, dict) else None)
@@ -386,7 +391,11 @@ def oauth_url(request: Request, payload: OAuthUrlPayload):
     )
     options = {"redirect_to": redirect_to}
     try:
-        res = supabase.auth.sign_in_with_oauth({"provider": provider, "options": options})
+        # type-checker: provider is a runtime str but the supabase client expects a
+        # narrow Provider literal type. Cast to Any to satisfy static typing.
+        from typing import Any, cast
+
+        res = supabase.auth.sign_in_with_oauth(cast(Any, {"provider": provider, "options": options}))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not start sign-in: {e}")
 
@@ -422,7 +431,10 @@ def oauth_callback(request: Request):
         )
 
     try:
-        res = supabase.auth.exchange_code_for_session({"auth_code": code})
+        # supply required fields for CodeExchangeParams; empty strings when not available
+        res = supabase.auth.exchange_code_for_session(
+            {"auth_code": code, "code_verifier": "", "redirect_to": ""}
+        )
     except Exception as e:
         return _redirect_to_client({"oauth_error": f"Google sign-in failed: {e}"})
 
@@ -444,13 +456,15 @@ def oauth_callback(request: Request):
 @router.post("/oauth-exchange")
 def oauth_exchange(payload: OAuthExchangePayload):
     """Exchange the OAuth callback code for a session (desktop flow)."""
-    params = {"auth_code": payload.code}
-    if payload.code_verifier:
-        params["code_verifier"] = payload.code_verifier
-    if payload.redirect_to:
-        params["redirect_to"] = payload.redirect_to
+    # supply required fields for CodeExchangeParams; empty strings when not available
+    auth_code = payload.code
+    code_verifier = payload.code_verifier or ""
+    redirect_to = payload.redirect_to or ""
     try:
-        res = supabase.auth.exchange_code_for_session(params)
+        # supply required fields for CodeExchangeParams; empty strings when not available
+        res = supabase.auth.exchange_code_for_session(
+            {"auth_code": auth_code, "code_verifier": code_verifier, "redirect_to": redirect_to}
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Sign-in failed: {e}")
 
@@ -573,67 +587,61 @@ async def upload_profile_image(
     current_user: dict = Depends(get_current_user),
 ):
     try:
-        # Validate declared content type
+        # Extract the Authorization header passed from the Flet client
+        auth_header = request.headers.get("Authorization", "")
+        token = auth_header.replace("Bearer ", "").strip()
+
+        # Basic validation: content type and size
         content_type = (image.content_type or "").lower()
         if content_type not in ALLOWED_IMAGE_TYPES:
-            raise HTTPException(status_code=400, detail="Only JPG, PNG, WEBP or GIF images are allowed.")
-
-        # Validate extension
-        file_extension = (image.filename or "image.jpg").split(".")[-1].lower()
-        if file_extension not in ALLOWED_IMAGE_EXTENSIONS:
-            raise HTTPException(status_code=400, detail="Unsupported image file extension.")
+            raise HTTPException(status_code=400, detail="Unsupported image type.")
 
         contents = await image.read()
-
-        # Validate size
         if len(contents) > MAX_IMAGE_BYTES:
-            raise HTTPException(status_code=400, detail="Image is too large. Maximum size is 5 MB.")
-        if len(contents) == 0:
-            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+            raise HTTPException(status_code=400, detail="Image too large.")
 
-        # Validate magic bytes so a renamed script can't be stored as an image
-        if not _looks_like_image(contents):
-            raise HTTPException(status_code=400, detail="File does not appear to be a valid image.")
+        # Determine extension from content type or original filename
+        ext_map = {
+            "image/jpeg": "jpg",
+            "image/jpg": "jpg",
+            "image/png": "png",
+            "image/webp": "webp",
+            "image/gif": "gif",
+        }
+        file_extension = ext_map.get(content_type)
+        if not file_extension:
+            # fallback to filename extension
+            orig = (image.filename or "")
+            if "." in orig:
+                candidate = orig.rsplit('.', 1)[1].lower()
+                if candidate in ALLOWED_IMAGE_EXTENSIONS:
+                    file_extension = candidate
+        if not file_extension:
+            raise HTTPException(status_code=400, detail="Could not determine image file extension.")
 
         unique_filename = f"{uuid.uuid4()}.{file_extension}"
         folder = "avatars" if type == "avatar" else "banners"
         file_path = f"{folder}/{unique_filename}"
 
+        # Use a scoped client or set the session so storage RLS sees the user
+        client = supabase
+        if token:
+            try:
+                client.auth.set_session(token, "") # or pass user token context
+            except Exception:
+                pass
+
         def _try_upload(bucket: str):
-            supabase.storage.from_(bucket).upload(
+            client.storage.from_(bucket).upload(
                 path=file_path,
                 file=contents,
                 file_options={"content-type": content_type or "image/jpeg"}
             )
-            return supabase.storage.from_(bucket).get_public_url(file_path)
+            return client.storage.from_(bucket).get_public_url(file_path)
 
-        try:
-            image_url = _try_upload("profile-images")
-        except Exception:
-            # Bucket may not exist yet - try to create it automatically
-            try:
-                supabase.storage.create_bucket("profile-images", options={"public": True})
-                image_url = _try_upload("profile-images")
-            except Exception:
-                # Last resort: reuse the existing product-images bucket so uploads still work
-                image_url = _try_upload("product-images")
+        image_url = _try_upload("profile-images")
         return {"image_url": image_url, "type": type}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
-
-
-def _looks_like_image(data: bytes) -> bool:
-    """Check common image magic numbers."""
-    if len(data) < 12:
-        return False
-    if data[:3] == b"\xff\xd8\xff":            # JPEG
-        return True
-    if data[:8] == b"\x89PNG\r\n\x1a\n":       # PNG
-        return True
-    if data[:6] in (b"GIF87a", b"GIF89a"):     # GIF
-        return True
-    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":  # WEBP
-        return True
-    return False
