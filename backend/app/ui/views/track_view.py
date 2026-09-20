@@ -68,26 +68,34 @@ def build_track_page(page: ft.Page, back_callback):
             item_hint = f"{len(items)} item(s)" if len(items) > 3 else ", ".join(
                 str(i.get("name", "Part"))[:22] for i in items[:3]
             )
+            # build column children ensuring only Control instances are included
+            col_children = []
+            col_children.append(
+                ft.Row([
+                    ft.Column([
+                        ft.Text(o.get("order_reference", "AYU-????"), size=15, weight=ft.FontWeight.BOLD, color=C.text()),
+                        ft.Text(_fmt_date(o.get("created_at")), size=11, color=C.muted()),
+                    ], spacing=2, expand=True),
+                    _status_chip(o.get("status")),
+                ])
+            )
+            if item_hint:
+                col_children.append(ft.Text(item_hint, size=12, color=C.body(), max_lines=1))
+            col_children.extend([
+                ft.Divider(height=14, color=C.divider()),
+                ft.Row([
+                    ft.Text(f"KES {float(o.get('total') or 0):,.0f}", size=15, weight=ft.FontWeight.BOLD, color=C.accent()),
+                    ft.Text(f"{o.get('payment_method') or ''}  •  {o.get('fulfillment') or ''}", size=11, color=C.muted()),
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ])
+            if o.get("receipt_number"):
+                col_children.append(ft.Text(f"Receipt: {o['receipt_number']}", size=11, color=C.success()))
+
             result_col.controls.append(
                 ft.Container(
                     bgcolor=C.surface(), border_radius=14, padding=14,
                     border=ft.border.all(1, C.divider()),
-                    content=ft.Column([
-                        ft.Row([
-                            ft.Column([
-                                ft.Text(o.get("order_reference", "AYU-????"), size=15, weight=ft.FontWeight.BOLD, color=C.text()),
-                                ft.Text(_fmt_date(o.get("created_at")), size=11, color=C.muted()),
-                            ], spacing=2, expand=True),
-                            _status_chip(o.get("status")),
-                        ]),
-                        item_hint and ft.Text(item_hint, size=12, color=C.body(), max_lines=1),
-                        ft.Divider(height=14, color=C.divider()),
-                        ft.Row([
-                            ft.Text(f"KES {float(o.get('total') or 0):,.0f}", size=15, weight=ft.FontWeight.BOLD, color=C.accent()),
-                            ft.Text(f"{o.get('payment_method') or ''}  •  {o.get('fulfillment') or ''}", size=11, color=C.muted()),
-                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                        o.get("receipt_number") and ft.Text(f"Receipt: {o['receipt_number']}", size=11, color=C.success()),
-                    ], spacing=6, tight=True),
+                    content=ft.Column(col_children, spacing=6, tight=True),
                 )
             )
         result_col.controls.append(

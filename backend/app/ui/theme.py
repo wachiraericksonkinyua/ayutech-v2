@@ -59,12 +59,11 @@ _theme_listeners = []
 def configure_themes(page):
     """Attach explicit light/dark themes to the page (called once at startup)."""
     try:
-        page.theme = ft.Theme(
-            color_scheme=ft.ColorScheme(**_LIGHT_SCHEME), use_material3=True
-        )
-        page.dark_theme = ft.Theme(
-            color_scheme=ft.ColorScheme(**_DARK_SCHEME), use_material3=True
-        )
+        page.theme = ft.Theme(use_material3=True)
+        page.theme.color_scheme = ft.ColorScheme(**_LIGHT_SCHEME)
+
+        page.dark_theme = ft.Theme(use_material3=True)
+        page.dark_theme.color_scheme = ft.ColorScheme(**_DARK_SCHEME)
     except Exception as err:
         print(f"Theme configuration warning: {err}")
 

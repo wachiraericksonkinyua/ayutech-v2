@@ -229,22 +229,41 @@ def _build_dashboard_body(page: ft.Page):
         filter_chips_row.controls.clear()
         for name in ["All", "Paid", "Fulfilled", "Pending"]:
             selected = active_filter == name or (name == "Pending" and active_filter == "Pending PIN")
-            filter_chips_row.controls.append(
-                ft.Container(
+            # Use gradient when selected (Container.bgcolor expects a str),
+            # otherwise use a solid background color.
+            
+            if selected:
+                # assign gradient and shadow when selected
+                container = ft.Container(
+                    gradient=C.grad_primary(),
+                    shadow=C.soft_shadow(),
                     data=name,
                     padding=ft.padding.symmetric(horizontal=14, vertical=8),
                     border_radius=16,
-                    bgcolor=C.grad_primary() if selected else C.surface_alt(),
-                    shadow=C.soft_shadow() if selected else None,
                     on_click=lambda e, nm=name: set_filter(nm),
                     content=ft.Text(
                         name,
                         size=11,
                         weight=ft.FontWeight.BOLD,
-                        color="white" if selected else C.body(),
+                        color="white",
                     ),
                 )
-            )
+            else:
+                container = ft.Container(
+                    bgcolor=C.surface_alt(),
+                    data=name,
+                    padding=ft.padding.symmetric(horizontal=14, vertical=8),
+                    border_radius=16,
+                    on_click=lambda e, nm=name: set_filter(nm),
+                    content=ft.Text(
+                        name,
+                        size=11,
+                        weight=ft.FontWeight.BOLD,
+                        color=C.body(),
+                    ),
+                )
+
+            filter_chips_row.controls.append(container)
 
     # Search Bar
     search_bar = ft.TextField(
@@ -279,38 +298,42 @@ def _build_dashboard_body(page: ft.Page):
         padding=ft.padding.only(left=15, right=15, top=0, bottom=120),
         bgcolor=C.bg(),
         expand=True,
-        content=ft.Column([
-            ft.Container(
-                padding=ft.padding.only(left=18, right=12, top=14, bottom=16),
-                bgcolor=C.grad_deep(),
-                border_radius=ft.border_radius.only(bottom_left=22, bottom_right=22),
-                content=ft.Row([
-                    ft.Row([
-                        ft.Container(
-                            width=42, height=42, bgcolor=C.accent(), border_radius=13,
-                            alignment=ft.alignment.center,
-                            content=ft.Icon(ft.icons.SPEED, color="white", size=22),
-                        ),
-                        ft.Column([
-                            ft.Text("Admin Dashboard", size=17, weight=ft.FontWeight.BOLD, color="white"),
-                            ft.Text("Live order centre · auto-sync", size=11, color="#B6AEA4"),
-                        ], spacing=1),
-                    ], spacing=12),
-                    ft.IconButton(
-                        icon=ft.icons.REFRESH,
-                        icon_color="white",
-                        bgcolor="#22FFFFFF",
-                        tooltip="Sync Now",
-                        on_click=lambda e: (fetch_orders_from_server(), render_dashboard(), page.update())
-                    )
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-            ),
-            ft.Container(height=2),
-            metrics_row,
-            search_bar,
-            filter_chips_row,
-            orders_table_container
-        ], scroll=ft.ScrollMode.AUTO, spacing=14)
+        content=ft.Column(
+            controls=[
+                ft.Container(
+                    padding=ft.padding.only(left=18, right=12, top=14, bottom=16),
+                    gradient=C.grad_deep(),
+                    border_radius=ft.border_radius.only(bottom_left=22, bottom_right=22),
+                    content=ft.Row([
+                        ft.Row([
+                            ft.Container(
+                                width=42, height=42, bgcolor=C.accent(), border_radius=13,
+                                alignment=ft.alignment.center,
+                                content=ft.Icon(ft.icons.SPEED, color="white", size=22),
+                            ),
+                            ft.Column([
+                                ft.Text("Admin Dashboard", size=17, weight=ft.FontWeight.BOLD, color="white"),
+                                ft.Text("Live order centre · auto-sync", size=11, color="#B6AEA4"),
+                            ], spacing=1),
+                        ], spacing=12),
+                        ft.IconButton(
+                            icon=ft.icons.REFRESH,
+                            icon_color="white",
+                            bgcolor="#22FFFFFF",
+                            tooltip="Sync Now",
+                            on_click=lambda e: (fetch_orders_from_server(), render_dashboard(), page.update())
+                        )
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+                ),
+                ft.Container(height=2),
+                metrics_row,
+                search_bar,
+                filter_chips_row,
+                orders_table_container
+            ],
+            scroll=ft.ScrollMode.AUTO,
+            spacing=14
+        )
     )
 
 

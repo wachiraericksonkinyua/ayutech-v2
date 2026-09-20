@@ -26,12 +26,12 @@ def build_loading_container():
         bgcolor=C.bg(),
         alignment=ft.alignment.center,
         content=ft.Column(
-            [
+            controls=[
                 ft.Container(
                     width=92,
                     height=92,
                     border_radius=46,
-                    bgcolor=C.grad_primary(),
+                    gradient=C.grad_primary(),
                     shadow=C.card_shadow(),
                     alignment=ft.alignment.center,
                     content=ft.Text("A", size=40, weight=ft.FontWeight.BOLD, color="white"),
@@ -236,7 +236,7 @@ def main(page: ft.Page):
                     alignment=ft.alignment.center_right,
                     content=ft.Container(
                         content=ft.Text(text, size=12, weight=ft.FontWeight.W_500, color="white"),
-                        bgcolor=C.grad_primary(),
+                        gradient=C.grad_primary(),
                         padding=ft.padding.symmetric(horizontal=12, vertical=8),
                         border_radius=ft.border_radius.only(top_left=10, top_right=10, bottom_left=10, bottom_right=2)
                     )
@@ -572,7 +572,7 @@ def main(page: ft.Page):
     ai_button_ui = ft.Container(
         width=54,
         height=54,
-        bgcolor=C.grad_primary(),
+        gradient=C.grad_primary(),
         border_radius=27,
         border=ft.border.all(2, "white"),
         alignment=ft.alignment.center,

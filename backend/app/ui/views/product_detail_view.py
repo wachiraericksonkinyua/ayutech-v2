@@ -21,9 +21,19 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
         else:
             wishlist[product["id"]] = product
             is_fav = True
-        fav_btn.icon = ft.icons.FAVORITE if is_fav else ft.icons.FAVORITE_BORDER
-        fav_btn.icon_color = C.accent() if is_fav else C.text()
+        # recreate the icon and set it on the button to avoid assigning to Icon attributes
+        fav_btn.content = ft.Icon(
+            ft.icons.FAVORITE if is_fav else ft.icons.FAVORITE_BORDER,
+            size=19,
+            color=C.accent() if is_fav else C.text(),
+        )
         page.update()
+
+    fav_icon = ft.Icon(
+        ft.icons.FAVORITE if is_fav else ft.icons.FAVORITE_BORDER,
+        size=19,
+        color=C.accent() if is_fav else C.text(),
+    )
 
     fav_btn = ft.Container(
         width=42,
@@ -33,11 +43,7 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
         border=ft.border.all(1, C.divider()),
         shadow=C.soft_shadow(),
         alignment=ft.alignment.center,
-        content=ft.Icon(
-            ft.icons.FAVORITE if is_fav else ft.icons.FAVORITE_BORDER,
-            size=19,
-            color=C.accent() if is_fav else C.text(),
-        ),
+        content=fav_icon,
         tooltip="Save to wishlist",
         on_click=toggle_fav,
     )
@@ -60,7 +66,7 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
 
     header_bar = ft.Container(
         padding=15,
-        content=ft.Row([
+        content=ft.Row(controls=[
             ft.IconButton(ft.icons.ARROW_BACK, icon_color=C.text(), on_click=lambda e: back_callback()),
             ft.Text("Product Details", size=16, weight=ft.FontWeight.BOLD, color=C.text()),
             fav_btn
@@ -82,7 +88,7 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
             content=ft.Row([ft.Icon(icon, size=16, color=color), ft.Text(label, size=12, weight=ft.FontWeight.BOLD, color=C.text())], alignment=ft.MainAxisAlignment.CENTER)
         )
 
-    action_buttons = ft.Row([
+    action_buttons = ft.Row(controls=[
         ft.Container(expand=True, on_click=call_store, content=_pill(ft.icons.PHONE, "Call Shop", C.accent())),
         ft.Container(expand=True, on_click=whatsapp_store, content=_pill(ft.icons.CHAT, "WhatsApp", C.success())),
         ft.Container(
@@ -98,11 +104,11 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
     )
 
     # ---------- REVIEWS ----------
-    reviews_col = ft.Column(spacing=8)
+    reviews_col = ft.Column(controls=[], spacing=8)
     rating_summary = ft.Text("Loading reviews...", size=12, color=C.muted())
 
     def _stars(rating: int, active_color=C.accent()):
-        return ft.Row([
+        return ft.Row(controls=[
             ft.Icon(ft.icons.STAR if i <= int(rating) else ft.icons.STAR_OUTLINE,
                     color=active_color, size=16)
             for i in range(1, 6)
@@ -129,19 +135,19 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
                     ft.Container(
                         bgcolor=C.surface(), border_radius=10, padding=10,
                         border=ft.border.all(1, C.divider()),
-                        content=ft.Column([
-                            ft.Row([
+                        content=ft.Column(controls=[
+                            ft.Row(controls=[
                                 ft.Container(
                                     width=30, height=30, bgcolor=C.accent_soft(), border_radius=15,
                                     alignment=ft.alignment.center,
                                     content=ft.Text(str(r.get("customer_name", "G"))[:1].upper(), size=12, weight=ft.FontWeight.BOLD, color=C.accent()),
                                 ),
-                                ft.Column([
+                                ft.Column(controls=[
                                     ft.Text(str(r.get("customer_name", "Customer"))[:24], size=12, weight=ft.FontWeight.BOLD, color=C.text()),
                                     _stars(r.get("rating", 0)),
                                 ], spacing=1),
                             ], spacing=8),
-                            r.get("comment") and ft.Text(str(r["comment"])[:400], size=12, color=C.body()),
+                            (r.get("comment") and ft.Text(str(r["comment"])[:400], size=12, color=C.body())),
                         ], spacing=6, tight=True),
                     )
                 )
@@ -210,8 +216,8 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
             bgcolor=C.bg(),
             shape=ft.RoundedRectangleBorder(radius=18),
             title=ft.Text("Rate this Part", size=16, weight=ft.FontWeight.BOLD, color=C.text()),
-            content=ft.Column([
-                ft.Row(star_buttons, spacing=2),
+            content=ft.Column(controls=[
+                ft.Row(controls=[*star_buttons], spacing=2),
                 ft.Text("Only verified buyers can review.", size=11, color=C.muted()),
                 comment_field,
             ], tight=True, spacing=10),
@@ -222,7 +228,7 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
         dlg.open = True
         page.update()
 
-    details_content = ft.Column([
+    details_content = ft.Column(controls=[
         ft.Container(
             content=ft.Container(
                 padding=ft.padding.symmetric(horizontal=8, vertical=4),
@@ -240,7 +246,7 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
             ft.Row([
                 ft.IconButton(ft.icons.REMOVE, icon_size=16, icon_color=C.text(), bgcolor=C.surface_alt(), on_click=lambda e: update_qty(-1)),
                 qty_val,
-                ft.IconButton(ft.icons.ADD, icon_size=16, icon_color="white", bgcolor=C.grad_primary(), on_click=lambda e: update_qty(1)),
+                ft.IconButton(ft.icons.ADD, icon_size=16, icon_color="white", bgcolor=C.accent(), on_click=lambda e: update_qty(1)),
             ], spacing=10)
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
         ft.Divider(color=C.divider()),
@@ -263,30 +269,30 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
 
     load_reviews()
 
-    return ft.Column([
+    return ft.Column(controls=[
         header_bar,
         ft.Container(
             expand=True,
             bgcolor=C.bg(),
             padding=ft.padding.symmetric(horizontal=15),
-            content=ft.Column([image_preview, details_content], scroll=ft.ScrollMode.AUTO, expand=True)
+            content=ft.Column(controls=[image_preview, details_content], scroll=ft.ScrollMode.AUTO, expand=True)
         ),
         ft.Container(
             padding=ft.padding.symmetric(horizontal=15, vertical=12),
             bgcolor=C.surface(),
             border=ft.border.only(top=ft.BorderSide(1, C.divider())),
-            content=ft.Row([
-                ft.Column([
+            content=ft.Row(controls=[
+                ft.Column(controls=[
                     ft.Text("Total Price", size=11, color=C.muted()),
                     ft.Text(f"KES {product['price']:,.0f}", size=18, weight=ft.FontWeight.BOLD, color=C.accent())
                 ], spacing=0, tight=True),
                 ft.Container(
                     expand=True, height=46,
                     border_radius=14, shadow=C.soft_shadow(),
-                    bgcolor=C.grad_primary(),
+                    gradient=C.grad_primary(),
                     alignment=ft.alignment.center,
                     on_click=lambda e: add_to_cart_callback(product, int(qty_val.value or "1")),
-                    content=ft.Row([
+                    content=ft.Row(controls=[
                         ft.Icon(ft.icons.SHOPPING_BAG, size=17, color="white"),
                         ft.Text("Add to Cart", size=13, weight=ft.FontWeight.BOLD, color="white"),
                     ], alignment=ft.MainAxisAlignment.CENTER, spacing=7),

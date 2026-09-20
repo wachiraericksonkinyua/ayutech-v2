@@ -13,6 +13,7 @@ import http.server
 import socketserver
 import threading
 import urllib.parse
+from typing import cast
 
 OAUTH_PORT = 8765
 REDIRECT_URI = f"http://localhost:{OAUTH_PORT}/callback"
@@ -25,11 +26,21 @@ _SUCCESS_HTML = (
 )
 
 
+class _OAuthTCPServer(socketserver.TCPServer):
+    captured: dict[str, list[str]] | None
+
+    def __init__(self, server_address, RequestHandlerClass):
+        super().__init__(server_address, RequestHandlerClass)
+        self.captured = None
+
+
 class _CallbackHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         params = urllib.parse.parse_qs(parsed.query)
-        self.server.captured = params
+        # self.server is typed as BaseServer; cast to our subclass to access .captured
+        server = cast(_OAuthTCPServer, self.server)
+        server.captured = params
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
         self.end_headers()
@@ -38,9 +49,9 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
         except Exception:
             pass
         # Stop serving after the first callback
-        threading.Thread(target=self.server.shutdown, daemon=True).start()
+        threading.Thread(target=server.shutdown, daemon=True).start()
 
-    def log_message(self, *args):
+    def log_message(self, format, *args):
         pass
 
 
@@ -48,11 +59,11 @@ class OAuthCallbackServer:
     def __init__(self, port: int = OAUTH_PORT):
         self.port = port
         self.captured = None
-        self._httpd = None
+        self._httpd: _OAuthTCPServer | None = None
 
     def start(self):
         socketserver.TCPServer.allow_reuse_address = True
-        self._httpd = socketserver.TCPServer(("127.0.0.1", self.port), _CallbackHandler)
+        self._httpd = _OAuthTCPServer(("127.0.0.1", self.port), _CallbackHandler)
         self._httpd.captured = None
         self._httpd.timeout = 1
         threading.Thread(
@@ -62,16 +73,26 @@ class OAuthCallbackServer:
         ).start()
 
     def wait(self, timeout: int = 180):
+        httpd = self._httpd
+        if httpd is None:
+            return None
+
         elapsed = 0.0
-        while self._httpd.captured is None and elapsed < timeout:
+        while httpd.captured is None and elapsed < timeout:
             threading.Event().wait(0.3)
             elapsed += 0.3
-        self.captured = self._httpd.captured
+        self.captured = httpd.captured
         return self.captured
 
     def stop(self):
+        httpd = self._httpd
+        if httpd is None:
+            return
+
         try:
-            self._httpd.shutdown()
-            self._httpd.server_close()
+            httpd.shutdown()
+            httpd.server_close()
         except Exception:
             pass
+        finally:
+            self._httpd = None

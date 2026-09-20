@@ -43,8 +43,23 @@ def build_home_view(page: ft.Page, update_cart_callback, update_wishlist_callbac
 
         def clear_all(e):
             app_notifications.clear()
-            popup.content.content.controls[2].controls = build_rows()
-            popup.content.content.controls[0].controls[2].value = "0"
+            # Safely navigate nested attributes to satisfy static type checkers
+            dialog_container = getattr(popup, "content", None)
+            if dialog_container is not None:
+                inner = getattr(dialog_container, "content", None)
+                if inner is not None and hasattr(inner, "controls"):
+                    # Update rows if the expected structure exists
+                    try:
+                        if len(inner.controls) > 2 and hasattr(inner.controls[2], "controls"):
+                            inner.controls[2].controls = build_rows()
+                    except Exception:
+                        pass
+                    # Update badge value if present
+                    try:
+                        if len(inner.controls) > 0 and hasattr(inner.controls[0], "controls") and len(inner.controls[0].controls) > 2:
+                            inner.controls[0].controls[2].value = "0"
+                    except Exception:
+                        pass
             popup.update()
 
         popup = ft.AlertDialog(
@@ -74,9 +89,8 @@ def build_home_view(page: ft.Page, update_cart_callback, update_wishlist_callbac
                     ft.Column(build_rows(), spacing=8, tight=True, scroll=ft.ScrollMode.AUTO),
                 ], spacing=4, tight=True),
             ),
-            actions=[ft.TextButton("Close")],
+            actions=[ft.TextButton("Close", on_click=lambda e: (setattr(popup, "open", False), page.update()))],
         )
-        popup.actions[0].on_click = lambda e: (setattr(popup, "open", False), page.update())
         page.dialog = popup
         popup.open = True
         page.update()
@@ -160,7 +174,7 @@ def build_home_view(page: ft.Page, update_cart_callback, update_wishlist_callbac
         padding=18,
         border_radius=20,
         shadow=C.card_shadow(),
-        bgcolor=C.grad_primary(),
+        gradient=C.grad_primary(),
         content=ft.Row([
             ft.Column([
                 ft.Container(
@@ -211,40 +225,52 @@ def build_home_view(page: ft.Page, update_cart_callback, update_wishlist_callbac
                 border=ft.border.all(1, C.divider()),
                 shadow=C.soft_shadow(),
                 on_click=lambda e, item=p: open_detail_callback(item),
-                content=ft.Column([
-                    ft.Stack([
-                        ft.Container(
-                            height=100, border_radius=14, bgcolor=C.surface_alt(),
-                            alignment=ft.alignment.center, padding=5,
-                            content=ft.Image(src=img_url, fit=ft.ImageFit.CONTAIN)
-                        ),
-                        ft.Container(
-                            top=6, right=6,
-                            content=ft.Container(
-                                bgcolor=C.surface(), border_radius=20,
-                                shadow=C.soft_shadow(),
-                                content=ft.IconButton(
-                                    ft.icons.FAVORITE if is_fav else ft.icons.FAVORITE_BORDER,
-                                    icon_color=C.accent() if is_fav else C.muted(), icon_size=16,
-                                    on_click=lambda e, item=p: update_wishlist_callback(item)
+                content=ft.Column(
+                    controls=[
+                        ft.Stack(
+                            controls=[
+                                ft.Container(
+                                    height=100, border_radius=14, bgcolor=C.surface_alt(),
+                                    alignment=ft.alignment.center, padding=5,
+                                    content=ft.Image(src=img_url, fit=ft.ImageFit.CONTAIN)
                                 ),
-                            ),
+                                ft.Container(
+                                    top=6, right=6,
+                                    content=ft.Container(
+                                        bgcolor=C.surface(), border_radius=20,
+                                        shadow=C.soft_shadow(),
+                                        content=ft.IconButton(
+                                            ft.icons.FAVORITE if is_fav else ft.icons.FAVORITE_BORDER,
+                                            icon_color=C.accent() if is_fav else C.muted(), icon_size=16,
+                                            on_click=lambda e, item=p: update_wishlist_callback(item)
+                                        ),
+                                    ),
+                                )
+                            ]
+                        ),
+                        ft.Text(p["name"], size=12, weight=ft.FontWeight.BOLD, max_lines=2, color=C.text()),
+                        ft.Row(
+                            controls=[
+                                ft.Column(
+                                    controls=[
+                                        ft.Text("AyuTech Price", size=9, color=C.muted()),
+                                        ft.Text(f"KES {p['price']:,.0f}", size=13, color=C.accent(), weight=ft.FontWeight.BOLD),
+                                    ],
+                                    spacing=0,
+                                    tight=True,
+                                ),
+                                ft.Container(
+                                    width=32, height=32, gradient=C.grad_primary(), border_radius=16,
+                                    alignment=ft.alignment.center,
+                                    on_click=lambda e, item=p: update_cart_callback(item),
+                                    content=ft.Icon(ft.icons.ADD_SHOPPING_CART, size=15, color="white"),
+                                )
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         )
-                    ]),
-                    ft.Text(p["name"], size=12, weight=ft.FontWeight.BOLD, max_lines=2, color=C.text()),
-                    ft.Row([
-                        ft.Column([
-                            ft.Text("AyuTech Price", size=9, color=C.muted()),
-                            ft.Text(f"KES {p['price']:,.0f}", size=13, color=C.accent(), weight=ft.FontWeight.BOLD),
-                        ], spacing=0, tight=True),
-                        ft.Container(
-                            width=32, height=32, bgcolor=C.grad_primary(), border_radius=16,
-                            alignment=ft.alignment.center,
-                            on_click=lambda e, item=p: update_cart_callback(item),
-                            content=ft.Icon(ft.icons.ADD_SHOPPING_CART, size=15, color="white"),
-                        )
-                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                )
             )
         )
 

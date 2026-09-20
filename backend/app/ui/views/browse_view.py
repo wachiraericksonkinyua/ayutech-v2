@@ -18,8 +18,8 @@ def build_browse_view(page: ft.Page, update_cart_callback, update_wishlist_callb
             border=ft.border.all(1, C.divider()),
             shadow=C.soft_shadow(),
             on_click=lambda e, item=p: open_detail_callback(item),
-            content=ft.Column([
-                ft.Stack([
+            content=ft.Column(controls=[
+                ft.Stack(controls=[
                     ft.Container(
                         height=100, border_radius=14, bgcolor=C.surface_alt(),
                         alignment=ft.alignment.center, padding=5,
@@ -39,13 +39,13 @@ def build_browse_view(page: ft.Page, update_cart_callback, update_wishlist_callb
                     )
                 ]),
                 ft.Text(p["name"], size=12, weight=ft.FontWeight.BOLD, max_lines=2, color=C.text()),
-                ft.Row([
-                    ft.Column([
+                ft.Row(controls=[
+                    ft.Column(controls=[
                         ft.Text("AyuTech Price", size=9, color=C.muted()),
                         ft.Text(f"KES {p['price']:,.0f}", size=13, color=C.accent(), weight=ft.FontWeight.BOLD),
                     ], spacing=0, tight=True),
                     ft.Container(
-                        width=32, height=32, bgcolor=C.grad_primary(), border_radius=16,
+                        width=32, height=32, gradient=C.grad_primary(), border_radius=16,
                         alignment=ft.alignment.center,
                         on_click=lambda e, item=p: update_cart_callback(item),
                         content=ft.Icon(ft.icons.ADD_SHOPPING_CART, size=15, color="white"),
@@ -123,7 +123,8 @@ def build_browse_view(page: ft.Page, update_cart_callback, update_wishlist_callb
             ft.Container(
                 data=c,
                 content=ft.Text(c, color="white" if is_default else C.body(), size=11, weight=ft.FontWeight.BOLD),
-                bgcolor=C.grad_primary() if is_default else C.surface(),
+                bgcolor=C.surface() if not is_default else None,
+                gradient=C.grad_primary() if is_default else None,
                 border=ft.border.all(1, C.divider()) if not is_default else None,
                 shadow=C.soft_shadow() if is_default else None,
                 padding=ft.padding.symmetric(horizontal=13, vertical=8),

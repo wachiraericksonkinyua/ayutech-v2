@@ -132,16 +132,16 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
                 bgcolor=C.surface(), border_radius=16, padding=10,
                 border=ft.border.all(1, C.divider()),
                 shadow=C.soft_shadow(),
-                content=ft.Row([
+                content=ft.Row(controls=[
                     ft.Container(width=50, height=50, border_radius=10, bgcolor=C.surface_alt(),
                                  clip_behavior=ft.ClipBehavior.ANTI_ALIAS, content=get_item_image(item.get("image"))),
-                    ft.Column([
+                    ft.Column(controls=[
                         ft.Text(item["name"], size=12, weight=ft.FontWeight.BOLD, color=C.text(), max_lines=1),
                         ft.Text(f"KES {item['price']:,.0f}", size=12, color=C.accent(), weight=ft.FontWeight.BOLD),
-                        ft.Row([
+                        ft.Row(controls=[
                             ft.IconButton(ft.icons.REMOVE, icon_size=15, icon_color=C.text(), bgcolor=C.surface_alt(), on_click=lambda e, pid=p_id: change_qty_callback(pid, -1)),
                             ft.Text(str(item["qty"]), size=12, weight=ft.FontWeight.BOLD, color=C.text()),
-                            ft.IconButton(ft.icons.ADD, icon_size=15, icon_color="white", bgcolor=C.grad_primary(), on_click=lambda e, pid=p_id: change_qty_callback(pid, 1)),
+                            ft.IconButton(ft.icons.ADD, icon_size=15, icon_color="white", bgcolor=C.accent(), on_click=lambda e, pid=p_id: change_qty_callback(pid, 1)),
                         ], spacing=6),
                     ], expand=True, spacing=3),
                 ], spacing=10)
@@ -429,10 +429,10 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
         dlg.open = True
         page.update()
 
-      conf_column = ft.Column([
+      conf_column = ft.Column(controls=[
           ft.Container(
               padding=30, alignment=ft.alignment.center,
-              content=ft.Column([
+              content=ft.Column(controls=[
                   ft.Container(
                       width=76, height=76, bgcolor=C.accent_soft(), border_radius=38,
                       alignment=ft.alignment.center,
@@ -445,30 +445,30 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
           ),
           ft.Container(
               bgcolor=C.surface(), border_radius=14, padding=14, border=ft.border.all(1, C.divider()),
-              content=ft.Column([
+              content=ft.Column(controls=[
                   ft.Text("Summary", size=13, weight=ft.FontWeight.BOLD, color=C.text()),
-                  ft.Row([ft.Text("Items", size=12, color=C.soft()), ft.Text(f"{len(order.get('items') or [])}", size=12, color=C.text(), weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                  ft.Row([ft.Text("Total", size=12, color=C.soft()), ft.Text(f"KES {float(order.get('total') or 0):,.0f}", size=13, color=C.accent(), weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                  ft.Row([ft.Text("Payment", size=12, color=C.soft()), ft.Text(order.get("payment_method", ""), size=12, color=C.text(), weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                  ft.Row([ft.Text("Fulfillment", size=12, color=C.soft()), ft.Text(order.get("fulfillment", ""), size=12, color=C.text(), weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                  ft.Row(controls=[ft.Text("Items", size=12, color=C.soft()), ft.Text(f"{len(order.get('items') or [])}", size=12, color=C.text(), weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                  ft.Row(controls=[ft.Text("Total", size=12, color=C.soft()), ft.Text(f"KES {float(order.get('total') or 0):,.0f}", size=13, color=C.accent(), weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                  ft.Row(controls=[ft.Text("Payment", size=12, color=C.soft()), ft.Text(order.get("payment_method", ""), size=12, color=C.text(), weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                  ft.Row(controls=[ft.Text("Fulfillment", size=12, color=C.soft()), ft.Text(order.get("fulfillment", ""), size=12, color=C.text(), weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
               ], spacing=8, tight=True),
           ),
           ft.Container(
               bgcolor=C.surface(), border_radius=14, padding=14, border=ft.border.all(1, C.divider()),
-              content=ft.Column([
+              content=ft.Column(controls=[
                   ft.Text("Payment Status", size=13, weight=ft.FontWeight.BOLD, color=C.text()),
                   status_text,
                   receipt_text,
-ft.Row([
-              ft.OutlinedButton("Check Status", icon=ft.icons.REFRESH, style=ft.ButtonStyle(color=C.info(), side=ft.BorderSide(1.4, C.info()), shape=ft.RoundedRectangleBorder(radius=12)), on_click=do_refresh),
-              ft.ElevatedButton("Have a Code? Verify", bgcolor=C.accent(), color="white", style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=12)), on_click=open_verify),
-          ], spacing=8),
+                  ft.Row(controls=[
+                      ft.OutlinedButton("Check Status", icon=ft.icons.REFRESH, style=ft.ButtonStyle(color=C.info(), side=ft.BorderSide(1.4, C.info()), shape=ft.RoundedRectangleBorder(radius=12)), on_click=do_refresh),
+                      ft.ElevatedButton("Have a Code? Verify", style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=12)), on_click=open_verify),
+                  ], spacing=8),
               ], spacing=6, tight=True),
           ),
           ft.Text("An M-Pesa prompt was sent to your phone (if M-Pesa was selected). Enter your PIN, then tap Check Status.", size=11, color=C.soft()),
-          ft.Row([
-              ft.FilledButton("Continue Shopping", bgcolor=C.text(), color=C.bg(), style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=12)), on_click=lambda e: switch_tab_callback(0)),
-              ft.OutlinedButton("View Orders", style=ft.ButtonStyle(color=C.accent(), shape=ft.RoundedRectangleBorder(radius=12)), on_click=lambda e: switch_tab_callback(3)),
+          ft.Row(controls=[
+              ft.FilledButton("Continue Shopping", style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=12)), on_click=lambda e: switch_tab_callback(0) if callable(switch_tab_callback) else None),
+              ft.OutlinedButton("View Orders", style=ft.ButtonStyle(color=C.accent(), shape=ft.RoundedRectangleBorder(radius=12)), on_click=lambda e: switch_tab_callback(3) if callable(switch_tab_callback) else None),
           ], spacing=8),
       ], scroll=ft.ScrollMode.AUTO, spacing=12, expand=True)
 
@@ -481,7 +481,7 @@ ft.Row([
         height=47,
         border_radius=14,
         shadow=C.soft_shadow(),
-        bgcolor=C.grad_primary(),
+        gradient=C.grad_primary(),
         alignment=ft.alignment.center,
         on_click=handle_checkout,
         content=ft.Row([

@@ -1,6 +1,7 @@
 # app/ui/views/profile_view.py
 
 import uuid
+from typing import List, Optional
 import flet as ft
 import httpx
 from app.ui.state import API_BASE_URL, cart, current_user_id, my_orders, user_info, wishlist
@@ -14,7 +15,8 @@ import app.ui.state as app_state
 current_logged_in_user = None
 
 # Single shared FilePicker reused across settings-page rebuilds
-_SHARED_FILE_PICKER = [None]
+# Typed to allow either a FilePicker or None to satisfy type checkers
+_SHARED_FILE_PICKER: List[Optional[ft.FilePicker]] = [None]
 
 # Sub-page mode for the Hub tab. "" renders the dashboard; other values render
 # dedicated full pages: settings, wishlist, track, forgot, reset, onboarding.
@@ -587,8 +589,8 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
   # ---------------- FIRST-TIME PROFILE ONBOARDING ----------------
   def build_onboarding_page():
     """Collect phone (M-Pesa / order notifications) and date of birth."""
-    uid = current_logged_in_user.get('id', '')
-    email = current_logged_in_user.get('email', '')
+    uid = (current_logged_in_user or {}).get('id', '')
+    email = (current_logged_in_user or {}).get('email', '')
 
     fullname_field = ft.TextField(
         label='Full Name', border_color=C.input_border(), focused_border_color=C.accent(),
@@ -697,8 +699,8 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
 
   # ---------------- PROFILE SETTINGS PAGE ----------------
   def build_settings_page():
-    logged_in_email = current_logged_in_user.get('email', '')
-    uid = current_logged_in_user.get('id', '')
+    logged_in_email = (current_logged_in_user or {}).get('email', '')
+    uid = (current_logged_in_user or {}).get('id', '')
 
     profile_data = {
         'username': 'Customer',
@@ -802,7 +804,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
 
     def change_theme(e):
       theme_mod.apply_theme(page, theme_drop.value or 'system')
-      notify(page, f'Theme set to {theme_drop.value.title()}', '#16A34A', ft.icons.BRIGHTNESS_6_OUTLINED, title='Appearance')
+      notify(page, f'Theme set to {(theme_drop.value or "system").title()}', '#16A34A', ft.icons.BRIGHTNESS_6_OUTLINED)
       # Rebuild settings so every themed token refreshes immediately.
       switch_tab_callback(4)
 
@@ -1172,7 +1174,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
       width=56,
       height=56,
       border_radius=28,
-      bgcolor=C.grad_primary(),
+      gradient=C.grad_primary(),
       alignment=ft.alignment.center,
       border=ft.border.all(2, 'white'),
       clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
@@ -1213,7 +1215,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
 
     def _load():
       try:
-        uid = current_logged_in_user.get('id', '')
+        uid = current_logged_in_user.get('id', '') if isinstance(current_logged_in_user, dict) else ''
         if uid:
           pr = api_client.get(f'/auth/profile/{uid}')
           if pr.status_code == 200:
@@ -1230,7 +1232,7 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
     threading.Thread(target=_load, daemon=True).start()
 
   profile_header = ft.Container(
-      bgcolor=C.grad_deep(),
+      gradient=C.grad_deep(),
       border_radius=ft.border_radius.only(bottom_left=26, bottom_right=26),
       padding=20,
       shadow=C.card_shadow(),

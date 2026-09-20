@@ -2,14 +2,16 @@
 
 import threading
 import time as _time
+from typing import Optional
+
 import flet as ft
 import app.ui.state as app_state
 
 _active_toasts = []
 
 
-def notify(page: ft.Page, message: str, color: str = "#121212", icon: str = None,
-           title: str = None, duration: float = 2.6):
+def notify(page: ft.Page, message: str, color: str = "#121212", icon: Optional[str] = None,
+           title: Optional[str] = None, duration: float = 2.6):
     """Record a notification in the center and show a top toast."""
     try:
         app_state.notifications.insert(0, {
@@ -27,8 +29,8 @@ def notify(page: ft.Page, message: str, color: str = "#121212", icon: str = None
     show_top_notification(page, message, color, icon, title, duration)
 
 
-def show_top_notification(page: ft.Page, message: str, color: str = "#121212", icon: str = None,
-                          title: str = None, duration: float = 2.6):
+def show_top_notification(page: ft.Page, message: str, color: str = "#121212", icon: Optional[str] = None,
+                          title: Optional[str] = None, duration: float = 2.6):
     """Show a compact toast below the top header, stacking cleanly on the right side."""
     TOP_START = 62
     TOAST_HEIGHT = 54
