@@ -7,8 +7,9 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Request, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, EmailStr, Field
-from typing import Any, cast    
-from app.db.supabase_client import supabase
+from typing import Any, cast
+from supabase import create_client
+from app.db.supabase_client import supabase, supabase_url, supabase_key
 from app.core.rate_limiter import limiter
 from app.core.auth_deps import get_current_user, require_owner
 
@@ -631,22 +632,29 @@ async def upload_profile_image(
         folder = "avatars" if type == "avatar" else "banners"
         file_path = f"{folder}/{unique_filename}"
 
-        # Forward the caller's Bearer token on the storage request itself so the
-        # bucket's RLS policies see an authenticated user. We deliberately do not
-        # mutate the shared global client's session (that leaks across requests).
         # Standard storage options accepted by Supabase storage-py
-        # Plain dictionary options for the storage upload call
         file_opts = {
             "content-type": content_type or "image/jpeg",
         }
 
         def _try_upload(bucket: str):
-            supabase.storage.from_(bucket).upload(
+            # storage3 overwrites any per-request Authorization header with the
+            # client's own session token, so the token must be set on the client.
+            # Use a scoped client so we never leak this user's session into the
+            # shared global client (which other requests also use).
+            client = supabase
+            if token:
+                try:
+                    client = create_client(supabase_url, supabase_key)
+                    client.auth.set_session(token, "")
+                except Exception:
+                    client = supabase
+            client.storage.from_(bucket).upload(
                 path=file_path,
                 file=contents,
                 file_options=cast(Any, file_opts),
             )
-            return supabase.storage.from_(bucket).get_public_url(file_path)
+            return client.storage.from_(bucket).get_public_url(file_path)
         
         image_url = _try_upload("profile-images")
         return {"image_url": image_url, "type": type}
