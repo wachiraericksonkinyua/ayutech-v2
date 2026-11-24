@@ -586,9 +586,17 @@ def update_customer_profile(
         if not update_data:
             raise HTTPException(status_code=400, detail="Nothing to update.")
 
-        # Upsert so a mirrored customer row is created if it doesn't exist yet
+        user_email = str(current_user.get("email") or "").strip()
+        if not user_email:
+            raise HTTPException(
+                status_code=400,
+                detail="Your account has no email address. Sign in again or contact support.",
+            )
+
+        # Include the authenticated email when creating a customer row.
         res = supabase_admin.table("customers").upsert({
             "id": user_id,
+            "email": user_email,
             **update_data,
         }, on_conflict="id").execute()
 

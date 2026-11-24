@@ -7,7 +7,6 @@ from app.ui.state import API_BASE_URL, cart, my_orders, user_info, wishlist
 from app.ui.notifications import notify, show_top_notification
 from app.ui import theme as theme_mod
 from app.ui.views.track_view import build_track_page
-from app.ui.views.orders_view import build_orders_view
 from app.ui import colors as C
 from app.ui import api as api_client
 import app.ui.state as app_state
@@ -1149,8 +1148,6 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
     switch_tab_callback(4)
 
   def open_orders_page():
-    global profile_page_mode
-    profile_page_mode = 'orders'
     switch_tab_callback(3)
 
   def open_wishlist_page():
@@ -1171,8 +1168,6 @@ def build_profile_view(page: ft.Page, switch_tab_callback, update_cart_callback,
 
   if profile_page_mode == 'track':
     return build_track_page(page, back_to_hub)
-  if profile_page_mode == 'orders':
-    return build_orders_view(page, back_to_hub)
 
   # ---------------- MAIN HUB DASHBOARD ----------------
   logged_in_email = current_logged_in_user.get('email', 'Customer')

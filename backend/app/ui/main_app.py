@@ -11,6 +11,7 @@ from app.ui import colors as C
 from app.ui.views.home_view import build_home_view
 from app.ui.views.browse_view import build_browse_view
 from app.ui.views.cart_view import build_cart_view
+from app.ui.views.orders_view import build_orders_view
 from app.ui.views.profile_view import build_profile_view
 from app.ui.views.product_detail_view import build_product_detail_view
 
@@ -398,20 +399,16 @@ def main(page: ft.Page):
     def switch_tab(idx: int | None):
         if idx is None:
             idx = 0
-        elif idx == 4:
-            # Keep existing Hub callbacks working after removing the Orders tab.
-            idx = 3
 
-        # Cart requires a signed-in customer. Order history lives inside the Hub.
+        # Cart and order history require a signed-in customer.
         import app.ui.views.profile_view as profile_mod
         from app.ui.state import current_user_id
         
         is_logged_in = profile_mod.current_logged_in_user is not None or bool(current_user_id)
 
-        if idx == 2 and not is_logged_in:
-            notify(page, "Please sign in or create an account to view your cart.", C.danger(), ft.icons.LOCK, title="Access Locked")
-            # Force redirect to Hub / Profile tab
-            idx = 3
+        if idx in (2, 3) and not is_logged_in:
+            notify(page, "Please sign in or create an account to view your cart and orders.", C.danger(), ft.icons.LOCK, title="Access Locked")
+            idx = 4
 
         floating_footer.visible = True
         draggable_ai.visible = True
@@ -424,6 +421,12 @@ def main(page: ft.Page):
         elif idx == 2:
             set_view(build_cart_view(page, change_cart_qty, switch_tab))
         elif idx == 3:
+            def return_to_account(e=None):
+                profile_mod.profile_page_mode = ""
+                switch_tab(4)
+
+            set_view(build_orders_view(page, return_to_account))
+        elif idx == 4:
             set_view(build_profile_view(page, switch_tab, update_cart, open_product_detail))
         page.update()
 
@@ -508,30 +511,9 @@ def main(page: ft.Page):
             ft.NavigationDestination(icon=ft.icons.HOME_OUTLINED, selected_icon=ft.icons.HOME, label="Home"),
             ft.NavigationDestination(icon=ft.icons.GRID_VIEW_OUTLINED, selected_icon=ft.icons.GRID_VIEW, label="Browse"),
             ft.NavigationDestination(icon=ft.icons.SHOPPING_BAG_OUTLINED, selected_icon=ft.icons.SHOPPING_BAG, label="Cart"),
+            ft.NavigationDestination(icon=ft.icons.RECEIPT_LONG_OUTLINED, selected_icon=ft.icons.RECEIPT_LONG, label="Orders"),
             ft.NavigationDestination(icon=ft.icons.STOREFRONT_OUTLINED, selected_icon=ft.icons.STOREFRONT, label="Account"),
         ]
-    )
-
-    def _apply_theme_toggle(e=None):
-        theme_mod.toggle_theme(page)
-        theme_toggle_btn.icon = (
-            ft.icons.LIGHT_MODE if app_state.is_dark else ft.icons.DARK_MODE
-        )
-        theme_toggle_btn.tooltip = (
-            "Switch to light mode" if app_state.is_dark else "Switch to dark mode"
-        )
-        # Rebuild the active view so every themed token refreshes instantly.
-        try:
-            switch_tab(bottom_nav_bar.selected_index)
-        except Exception:
-            pass
-
-    theme_toggle_btn = ft.IconButton(
-        icon=ft.icons.DARK_MODE if not app_state.is_dark else ft.icons.LIGHT_MODE,
-        icon_color=C.accent(),
-        icon_size=20,
-        tooltip="Switch to dark mode" if not app_state.is_dark else "Switch to light mode",
-        on_click=_apply_theme_toggle,
     )
 
     floating_footer = ft.Container(
@@ -544,10 +526,7 @@ def main(page: ft.Page):
             border_radius=26,
             border=ft.border.all(1.5, C.accent()),
             padding=ft.padding.symmetric(horizontal=6, vertical=3),
-            content=ft.Row([
-                ft.Container(content=bottom_nav_bar, expand=True),
-                theme_toggle_btn,
-            ], spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+            content=ft.Container(content=bottom_nav_bar, expand=True)
         )
     )
 

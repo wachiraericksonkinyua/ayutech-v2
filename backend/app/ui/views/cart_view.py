@@ -352,8 +352,6 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
       receipt_text = ft.Text("Payment not yet detected", size=12, color=C.muted())
 
       def open_orders(e):
-        import app.ui.views.profile_view as profile_mod
-        profile_mod.profile_page_mode = "orders"
         if callable(switch_tab_callback):
           switch_tab_callback(3)
 
