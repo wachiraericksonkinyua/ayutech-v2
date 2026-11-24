@@ -35,7 +35,7 @@ async def get_products(category: Optional[str] = None):
     if cached is not None:
         return cached
     try:
-        query = supabase.table("products").select("*")
+        query = supabase.table("products_public").select("*")
 
         if category and category != "All":
             query = query.eq("category", category)
