@@ -1,6 +1,7 @@
 import os
 import base64
 from datetime import datetime
+from urllib.parse import urlparse
 import httpx
 from dotenv import load_dotenv
 
@@ -14,12 +15,20 @@ class DarajaService:
         is_sandbox = os.getenv("DARAJA_IS_SANDBOX", "true").lower() == "true"
         base_url = "https://sandbox.safaricom.co.ke" if is_sandbox else "https://api.safaricom.co.ke"
 
-        # Safely resolve live Render callback URL with fallback
         callback_url = (
             os.getenv("DARAJA_CALLBACK_URL")
             or os.getenv("CALLBACK_URL")
-            or "https://ayutech-v2.onrender.com/api/v1/payments/callback"
         ).strip()
+        if not callback_url:
+            callback_secret = os.getenv("MPESA_CALLBACK_SECRET", "").strip()
+            public_url = (
+                os.getenv("BACKEND_PUBLIC_URL")
+                or os.getenv("RENDER_EXTERNAL_URL")
+            ).strip().rstrip("/")
+            if callback_secret and public_url:
+                callback_url = (
+                    f"{public_url}/api/v1/payments/mpesa-callback/{callback_secret}"
+                )
 
         return {
             "consumer_key": os.getenv("DARAJA_CONSUMER_KEY", "").strip(),
@@ -65,6 +74,15 @@ class DarajaService:
     ) -> dict:
         """Send STK Push prompt to user's phone number with dynamic callback."""
         cfg = cls.get_config()
+        callback_secret = os.getenv("MPESA_CALLBACK_SECRET", "").strip()
+        expected_path = f"/api/v1/payments/mpesa-callback/{callback_secret}"
+        callback_path = urlparse(cfg["callback_url"]).path.rstrip("/")
+        if not callback_secret or callback_path != expected_path:
+            raise RuntimeError(
+                "Configure DARAJA_CALLBACK_URL to the protected "
+                "/api/v1/payments/mpesa-callback/{MPESA_CALLBACK_SECRET} route, "
+                "or set BACKEND_PUBLIC_URL and MPESA_CALLBACK_SECRET."
+            )
         access_token = await cls.get_access_token()
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         password = cls.generate_password(timestamp)

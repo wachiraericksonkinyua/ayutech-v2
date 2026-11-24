@@ -4,14 +4,13 @@ import json
 import threading
 import time
 import flet as ft
-import httpx
-from app.ui.state import API_BASE_URL, current_user_id, my_orders
+from app.ui.state import current_user_id, my_orders
 from app.ui.notifications import notify
 from app.ui import api as api_client
 from app.ui import colors as C
 
 
-def build_orders_view(page: ft.Page):
+def build_orders_view(page: ft.Page, back_callback=None):
   orders_list_container = ft.Column(spacing=12)
 
   def get_badge_color(status: str) -> str:
@@ -33,53 +32,36 @@ def build_orders_view(page: ft.Page):
     )
     order_date = ord_data.get('date') or ord_data.get('created_at', '')[:10]
 
-    receipt_input = ft.TextField(
-        label='M-Pesa Code (e.g. UIA9U5Y7NU)',
-        text_size=12,
-        height=40,
-        border_color=C.accent(),
-    )
-
     def submit_manual_receipt(e):
-      code = (receipt_input.value or '').strip()
-      if not code:
-        return
       try:
-        res = httpx.post(
-            f'{API_BASE_URL}/orders/verify-receipt',
-            json={'order_reference': order_ref, 'receipt_number': code},
-            timeout=5,
-        )
+        res = api_client.post(f'/orders/{order_ref}/refresh-payment', timeout=12)
         data = res.json()
-        if res.status_code == 200:
-          notify(page, 'Order successfully verified!', '#16A34A', title='Payment Verified')
-          close_dialog(receipt_dialog)
-          sync_orders_status()
-          render_orders()
-        else:
-          notify(page, data.get('detail', 'Invalid receipt code.'), C.accent(), title='Verification Failed')
+        notify(
+            page,
+            data.get('message', data.get('detail', 'Payment status checked.')),
+            '#16A34A' if res.status_code == 200 else C.accent(),
+            title='Payment Status',
+        )
+        sync_orders_status()
+        render_orders()
         page.update()
       except Exception as err:
-        print(f'Manual code entry error: {err}')
+        notify(page, f'Payment status check failed: {err}', C.accent(), title='Status Check Failed')
 
     verify_action_row = (
         ft.Container(
-            content=ft.Row([
-                ft.Container(content=receipt_input, expand=True),
-                ft.ElevatedButton(
-                    'Verify',
-                    bgcolor=C.accent(),
-                    color='white',
-                    height=40,
-                    style=ft.ButtonStyle(
-                        shape=ft.RoundedRectangleBorder(radius=8)
-                    ),
-                    on_click=submit_manual_receipt,
-                ),
-            ], spacing=8),
+            content=ft.ElevatedButton(
+                'Check M-Pesa Status',
+                bgcolor=C.accent(),
+                color='white',
+                height=40,
+                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+                on_click=submit_manual_receipt,
+            ),
             margin=ft.margin.symmetric(vertical=4),
         )
         if status in ['Pending', 'Pending PIN']
+        and 'mpesa' in str(ord_data.get('payment_method', '')).lower().replace('-', '')
         else ft.Container()
     )
 
@@ -279,7 +261,7 @@ def build_orders_view(page: ft.Page):
 
   def manual_verify_payment(order_ref):
     try:
-      res = httpx.get(f'{API_BASE_URL}/orders/status/{order_ref}', timeout=5)
+      res = api_client.get(f'/orders/status/{order_ref}', timeout=5)
       if res.status_code == 200:
         data = res.json()
         new_status = data.get('status')
@@ -322,7 +304,7 @@ def build_orders_view(page: ft.Page):
                 
             if order_ref:
                 try:
-                    res = httpx.get(f"{API_BASE_URL}/orders/status/{order_ref}", timeout=4)
+                    res = api_client.get(f"/orders/status/{order_ref}", timeout=4)
                     if res.status_code == 200:
                         server_status = res.json().get("status")
                         server_receipt = res.json().get("receipt_number")
@@ -523,9 +505,15 @@ def build_orders_view(page: ft.Page):
   threading.Thread(target=start_polling_loop, daemon=True).start()
 
   header_row = ft.Row([
-      ft.Text(
-          'My Orders', size=22, weight=ft.FontWeight.BOLD, color=C.text()
-      ),
+      ft.Row([
+          ft.IconButton(
+              ft.icons.ARROW_BACK,
+              icon_color=C.text(),
+              tooltip='Back to Hub',
+              on_click=back_callback,
+          ) if back_callback else ft.Container(width=0),
+          ft.Text('My Orders', size=22, weight=ft.FontWeight.BOLD, color=C.text()),
+      ], spacing=4),
       ft.IconButton(
           icon=ft.icons.REFRESH,
           icon_color=C.accent(),

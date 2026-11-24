@@ -1,18 +1,21 @@
 # backend/app/api/v1/endpoints/admin.py
 
+import logging
 from fastapi import APIRouter, HTTPException, Request, Depends
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, ValidationError
 from typing import Optional, List
-from datetime import datetime
-import urllib.parse
-import httpx
-from app.db.supabase_client import supabase, supabase_admin
+from datetime import datetime, timedelta, timezone
+import re
+from supabase import create_client
+from app.db.supabase_client import supabase_admin, supabase_url, supabase_key
 from app.core.cache import product_cache
 from app.core.auth_deps import require_admin, require_super_admin
 from app.core.rate_limiter import limiter
-from app.core.security import create_admin_token
+from app.core.security import create_admin_token, verify_password
+from app.api.v1.endpoints.orders import place_order_and_charge, _is_mpesa
 
 router = APIRouter()
+log = logging.getLogger("admin")
 
 # Every route in this router requires a staff token EXCEPT the login routes.
 _admin_guard = [Depends(require_admin)]
@@ -34,12 +37,12 @@ def _ensure_list(v):
     return v if isinstance(v, list) else []
 
 class ProductEditPayload(BaseModel):
-    name: str
-    category: str
-    price: float
-    stock_quantity: int
-    part_number: Optional[str] = ""
-    buying_price: Optional[float] = 0.0
+    name: str = Field(min_length=1, max_length=160)
+    category: str = Field(min_length=1, max_length=80)
+    price: float = Field(gt=0)
+    stock_quantity: int = Field(ge=0)
+    part_number: Optional[str] = Field(default="", max_length=80)
+    buying_price: Optional[float] = Field(default=0.0, ge=0)
     image_url: Optional[str] = ""
     supplier_name: Optional[str] = "Direct Importer"
     supplier_phone: Optional[str] = "254112323814"
@@ -48,128 +51,231 @@ class ProductEditPayload(BaseModel):
 @router.get("/orders", dependencies=_admin_guard)
 async def get_admin_orders():
     try:
-        res = supabase.table("orders").select("*").order("created_at", desc=True).limit(100).execute()
+        res = supabase_admin.table("orders").select("*").order("created_at", desc=True).limit(100).execute()
         return {"status": "success", "orders": getattr(res, "data", []) or []}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/orders", dependencies=_admin_guard)
-async def create_admin_order(payload: dict):
+def _phone_core(raw) -> str:
+    return re.sub(r"\D", "", str(raw or ""))[-9:]
+
+
+@router.post("/auth/pin-login")
+@limiter.limit("10/minute")
+async def pin_login(request: Request, payload: dict):
+    """Phone + PIN. PIN is bcrypt-hashed, checked against ONE account, with lockout."""
+    identifier = str(payload.get("identifier", "")).strip()
+    pin = str(payload.get("pin", "")).strip()
+    core = _phone_core(identifier)
+    bad = HTTPException(status_code=401, detail="Invalid phone or PIN")
+
+    if len(core) != 9 or not pin.isdigit() or not (4 <= len(pin) <= 8):
+        raise bad
+
+    res = supabase_admin.table("staff_users").select(
+        "id,name,role,phone,email,active,pin_hash,pin_failed_attempts,pin_locked_until"
+    ).execute()
+    staff = next((u for u in (res.data or []) if _phone_core(u.get("phone")) == core), None)
+
+    if not staff or not staff.get("pin_hash"):
+        raise bad
+    if staff.get("active") is False:
+        raise HTTPException(status_code=403, detail="This staff account is disabled.")
+
+    now = datetime.now(timezone.utc)
+    locked = staff.get("pin_locked_until")
+    if locked and datetime.fromisoformat(str(locked).replace("Z", "+00:00")) > now:
+        raise HTTPException(status_code=429, detail="Too many wrong PINs. Try again in 15 minutes.")
+
+    if not verify_password(pin, staff["pin_hash"]):
+        fails = (staff.get("pin_failed_attempts") or 0) + 1
+        upd = {"pin_failed_attempts": fails}
+        if fails >= 5:
+            upd = {"pin_failed_attempts": 0,
+                   "pin_locked_until": (now + timedelta(minutes=15)).isoformat()}
+        supabase_admin.table("staff_users").update(upd).eq("id", staff["id"]).execute()
+        raise bad
+
+    supabase_admin.table("staff_users").update(
+        {"pin_failed_attempts": 0, "pin_locked_until": None}).eq("id", staff["id"]).execute()
+
+    token = create_admin_token({
+        "sub": str(staff["id"]),
+        "name": staff.get("name", "Staff"),
+        "role": staff.get("role", "staff"),
+    })
+    safe = {k: v for k, v in staff.items()
+            if k not in ("pin_hash", "pin_failed_attempts", "pin_locked_until")}
+    return {"status": "success", "access_token": token, "user": safe}
+
+
+class PosSaleItem(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    qty: int = Field(ge=1, le=1000)
+
+
+class PosSaleRequest(BaseModel):
+    items: List[PosSaleItem] = Field(min_items=1, max_items=30)
+    payment_method: str = Field(min_length=1, max_length=40)
+    customer_phone: str = Field(default="", max_length=32)
+    payment_reference: str = Field(default="", max_length=100)
+    notes: str = Field(default="", max_length=500)
+
+
+class RefillRequest(BaseModel):
+    product_id: Optional[str] = Field(default=None, max_length=64)
+    product_name: str = Field(default="Spare Part", min_length=1, max_length=160)
+    requested_qty: int = Field(default=5, ge=1, le=100000)
+    supplier_name: str = Field(default="Direct Importer", max_length=120)
+    supplier_phone: str = Field(default="", max_length=32)
+    notes: str = Field(default="", max_length=500)
+
+
+async def _pos_sale_core(staff: dict, items: list, method: str, phone: str,
+                         reference: str, notes: str) -> dict:
+    method = (method or "").strip() or "Cash"
+    is_mpesa = _is_mpesa(method)
+    if not items:
+        raise HTTPException(400, "Cart is empty.")
+    if is_mpesa and not phone.strip():
+        raise HTTPException(400, "Customer phone is required for M-Pesa.")
+    if not is_mpesa and "cash" not in method.lower() and not reference.strip():
+        raise HTTPException(400, "A payment reference is required for this payment method.")
+
+    result = await place_order_and_charge(
+        customer_id=None, phone=phone, fulfillment="pickup", location="Shop Counter",
+        delivery_address="", payment_method=method,
+        items=[{"id": i["id"], "qty": i["qty"]} for i in items],
+        channel="pos", sold_by=str(staff["id"]))
+    order = result["order"]
+
+    if is_mpesa:
+        return {"status": "pending_payment", "order_id": order["id"],
+                "order_reference": order["order_reference"],
+                "total": float(order["total_amount"])}
+
     try:
-        res = supabase.table("orders").insert(payload).execute()
-        return {"status": "success", "data": getattr(res, "data", []) or []}
-    except Exception as e:
-        print(f"Order creation error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        paid = supabase_admin.rpc("mark_order_paid_manual", {
+            "p_order_id": order["id"], "p_method": method,
+            "p_reference": reference.strip().upper(),
+            "p_staff_id": str(staff["id"]), "p_staff_name": staff.get("name", "Staff"),
+            "p_notes": notes}).execute()
+        paid_order = paid.data[0] if isinstance(paid.data, list) and paid.data else paid.data
+        if not paid_order or paid_order.get("payment_status") != "paid":
+            raise RuntimeError("Manual payment RPC returned no paid order.")
+    except Exception:
+        log.exception("Could not record manual payment for order %s", order["id"])
+        try:
+            supabase_admin.rpc("release_order_stock",
+                               {"p_order_id": order["id"], "p_new_status": "Cancelled"}).execute()
+        except Exception:
+            log.exception("Could not release stock for failed POS sale %s", order["id"])
+        raise HTTPException(500, "Could not record the payment. The sale needs staff review.")
+    return {"status": "paid", "order_id": order["id"],
+            "order_reference": order["order_reference"],
+            "total": float(order["total_amount"])}
 
-@router.post("/orders/manual-override", dependencies=_admin_guard)
-async def process_manual_payment_override(payload: dict):
-    clean_ref = str(payload.get("payment_reference", "")).strip().upper()
-    if not clean_ref:
-        raise HTTPException(status_code=400, detail="Transaction receipt or reference code is required")
 
-    items = payload.get("items", [])
-    total_amount = float(payload.get("total_amount", 0))
-    payment_method = str(payload.get("payment_method", "BANK_TRANSFER"))
-    customer_phone = str(payload.get("customer_phone", "Walk-in Customer"))
-    verified_by_name = str(payload.get("verified_by_name", "Staff"))
-    notes = str(payload.get("notes", ""))
-    order_ref = f"MAN-{datetime.now().strftime('%H%M%S')}"
+@router.post("/pos/sale")
+async def pos_sale(body: PosSaleRequest, staff: dict = Depends(require_admin)):
+    return await _pos_sale_core(
+        staff, [i.dict() for i in body.items], body.payment_method,
+        body.customer_phone, body.payment_reference, body.notes)
 
-    # 1. Deduct Stock
-    for item in items:
-        p_id = str(item.get("id", "")).strip()
-        if not p_id or p_id == "None":
+
+@router.post("/orders", deprecated=True)
+async def create_admin_order(payload: dict, staff: dict = Depends(require_admin)):
+    """Compatibility route; order totals and stock are still server-controlled."""
+    try:
+        body = PosSaleRequest.parse_obj(payload)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors())
+    return await _pos_sale_core(
+        staff, [item.dict() for item in body.items], body.payment_method,
+        body.customer_phone, body.payment_reference, body.notes)
+
+
+@router.get("/pos/sale/{order_id}")
+async def pos_sale_status(order_id: str, staff: dict = Depends(require_admin)):
+    r = supabase_admin.table("orders").select(
+        "order_reference,status,payment_status,total_amount,receipt_number"
+    ).eq("id", order_id).limit(1).execute()
+    if not r.data:
+        raise HTTPException(404, "Order not found.")
+    return r.data[0]
+
+
+@router.post("/orders/manual-override")
+async def process_manual_payment_override(payload: dict, staff: dict = Depends(require_admin)):
+    items = []
+    for item in payload.get("items") or []:
+        if not isinstance(item, dict) or not item.get("id"):
             continue
         try:
-            qty_sold = int(item.get("qty", 1))
-            p_res = supabase.table("products").select("stock_quantity").eq("id", p_id).execute()
-            rows = getattr(p_res, "data", []) or []
-            if rows:
-                curr_stock = int(rows[0].get("stock_quantity") or 0)
-                new_stock = max(0, curr_stock - qty_sold)
-                supabase.table("products").update({"stock_quantity": new_stock}).eq("id", p_id).execute()
-        except Exception as stock_err:
-            print(f"Stock deduction warning for {p_id}: {stock_err}")
+            items.append({"id": str(item["id"]), "qty": int(item.get("qty", 1))})
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Invalid cart.")
+    customer_phone = str(payload.get("customer_phone", ""))
+    return await _pos_sale_core(
+        staff, items, str(payload.get("payment_method", "Cash")),
+        customer_phone if customer_phone.strip().isdigit() else "",
+        str(payload.get("payment_reference", "")), str(payload.get("notes", "")))
 
-    # 2. Insert into orders table
-    order_data = {
-        "order_reference": order_ref,
-        "customer_phone": customer_phone,
-        "total_amount": total_amount,
-        "status": "Fulfilled",
-        "receipt_number": f"{clean_ref} ({verified_by_name})",
-        "fulfillment": f"Shop Counter ({payment_method}) - Sold by {verified_by_name}",
-        "items": items,
-        "created_at": datetime.now().isoformat()
-    }
 
+@router.post("/orders/{order_id}/record-payment")
+async def record_manual_payment(order_id: str, payload: dict, staff: dict = Depends(require_admin)):
+    method = str(payload.get("payment_method", "Cash"))
+    reference = str(payload.get("payment_reference", "")).strip().upper()
+    if "cash" not in method.lower() and not reference:
+        raise HTTPException(400, "A payment reference is required for this payment method.")
     try:
-        order_insert = supabase.table("orders").insert(order_data).execute()
-        created_orders = getattr(order_insert, "data", []) or []
-        created_order_id = created_orders[0].get("id") if created_orders else order_ref
+        paid = supabase_admin.rpc("mark_order_paid_manual", {
+            "p_order_id": order_id, "p_method": method, "p_reference": reference,
+            "p_staff_id": str(staff["id"]), "p_staff_name": staff.get("name", "Staff"),
+            "p_notes": str(payload.get("notes", ""))}).execute()
+        paid_order = paid.data[0] if isinstance(paid.data, list) and paid.data else paid.data
+        if not paid_order or paid_order.get("payment_status") != "paid":
+            raise RuntimeError("Manual payment RPC returned no paid order.")
     except Exception as e:
-        print(f"Order insert error: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to record order: {str(e)}")
+        if "order_not_payable" in str(e):
+            raise HTTPException(409, "This order is not awaiting payment.")
+        raise HTTPException(500, "Could not record the payment.")
+    return {"status": "success"}
 
-    return {
-        "status": "success",
-        "order_reference": order_ref,
-        "payment_reference": clean_ref,
-        "verified_by": verified_by_name,
-        "total_amount": total_amount
-    }
 
-@router.patch("/orders/{order_id}/status", dependencies=_admin_guard)
-async def update_order_status(order_id: str, payload: dict):
+@router.patch("/orders/{order_id}/status")
+async def update_order_status(order_id: str, payload: dict, staff: dict = Depends(require_admin)):
+    """Status changes do not adjust stock or set payment state."""
     new_status = str(payload.get("status", "")).strip()
     if not new_status:
         raise HTTPException(status_code=400, detail="Missing status")
+    if new_status.lower() in ("paid", "payment failed"):
+        raise HTTPException(status_code=400,
+            detail="Payment is set by M-Pesa confirmation or a recorded manual payment.")
+    if new_status not in ("Processing", "Fulfilled", "Cancelled"):
+        raise HTTPException(400, "Unsupported order status.")
 
-    try:
-        res = supabase.table("orders").select("*").eq("id", order_id).execute()
-        order_rows = getattr(res, "data", []) or []
-        if not order_rows:
-            raise HTTPException(status_code=404, detail="Order not found")
-        order = order_rows[0]
-        prev_status = str(order.get("status", ""))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database fetch error: {str(e)}")
+    r = supabase_admin.table("orders").select("id,payment_status,stock_released") \
+        .eq("id", order_id).limit(1).execute()
+    if not r.data:
+        raise HTTPException(status_code=404, detail="Order not found")
+    order = r.data[0]
 
-    if new_status == "Fulfilled" and prev_status != "Fulfilled":
-        items_list = _ensure_list(order.get("items", []))
-        for item in items_list:
-            if not isinstance(item, dict):
-                continue
-            p_id = str(item.get("id", "")).strip()
-            if not p_id or p_id == "None":
-                continue
-            try:
-                qty_sold = int(item.get("qty", 1))
-            except (ValueError, TypeError):
-                qty_sold = 1
-            try:
-                p_res = supabase.table("products").select("stock_quantity").eq("id", p_id).execute()
-                p_rows = getattr(p_res, "data", []) or []
-                if p_rows:
-                    curr_stock = int(p_rows[0].get("stock_quantity") or 0)
-                    new_stock = max(0, curr_stock - qty_sold)
-                    supabase.table("products").update({"stock_quantity": new_stock}).eq("id", p_id).execute()
-            except Exception as stock_err:
-                print(f"Stock deduction error for item {p_id}: {stock_err}")
+    if new_status == "Fulfilled" and order["payment_status"] != "paid":
+        raise HTTPException(409, "An order cannot be fulfilled before payment is recorded.")
 
-    try:
-        supabase.table("orders").update({"status": new_status}).eq("id", order_id).execute()
-    except Exception as upd_err:
-        raise HTTPException(status_code=500, detail=f"Failed to update status: {str(upd_err)}")
-
+    if new_status == "Cancelled" and order["payment_status"] == "pending" and not order["stock_released"]:
+        supabase_admin.rpc("release_order_stock",
+                           {"p_order_id": order_id, "p_new_status": "Cancelled"}).execute()
+    else:
+        supabase_admin.table("orders").update({"status": new_status}).eq("id", order_id).execute()
     return {"status": "success", "new_status": new_status}
 
 # ==================== PRODUCTS ENDPOINTS ====================
 @router.get("/products", dependencies=_admin_guard)
 async def get_admin_products():
     try:
-        res = supabase.table("products").select("*").order("name", desc=False).execute()
+        res = supabase_admin.table("products").select("*").order("name", desc=False).execute()
         return getattr(res, "data", []) or []
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -177,7 +283,7 @@ async def get_admin_products():
 @router.post("/products", dependencies=_admin_guard)
 async def create_product(item: ProductEditPayload):
     try:
-        res = supabase.table("products").insert(item.dict()).execute()
+        res = supabase_admin.table("products").insert(item.dict()).execute()
         product_cache.invalidate()
         return {"status": "success", "product": getattr(res, "data", [])}
     except Exception as e:
@@ -186,7 +292,7 @@ async def create_product(item: ProductEditPayload):
 @router.patch("/products/{product_id}", dependencies=_admin_guard)
 async def quick_stock_update(product_id: str, payload: dict):
     try:
-        res = supabase.table("products").update(payload).eq("id", product_id).execute()
+        res = supabase_admin.table("products").update(payload).eq("id", product_id).execute()
         product_cache.invalidate()
         return {"status": "success", "data": getattr(res, "data", [])}
     except Exception as e:
@@ -195,7 +301,7 @@ async def quick_stock_update(product_id: str, payload: dict):
 @router.put("/products/{product_id}", dependencies=_admin_guard)
 async def edit_full_product(product_id: str, payload: ProductEditPayload):
     try:
-        res = supabase.table("products").update(payload.dict()).eq("id", product_id).execute()
+        res = supabase_admin.table("products").update(payload.dict()).eq("id", product_id).execute()
         product_cache.invalidate()
         return {"status": "success", "data": getattr(res, "data", [])}
     except Exception as e:
@@ -204,7 +310,7 @@ async def edit_full_product(product_id: str, payload: ProductEditPayload):
 @router.delete("/products/{product_id}", dependencies=_admin_guard)
 async def delete_product(product_id: str):
     try:
-        supabase.table("products").delete().eq("id", product_id).execute()
+        supabase_admin.table("products").delete().eq("id", product_id).execute()
         product_cache.invalidate()
         return {"status": "success"}
     except Exception as e:
@@ -214,7 +320,7 @@ async def delete_product(product_id: str):
 @router.get("/leads", dependencies=_admin_guard)
 async def get_admin_leads():
     try:
-        res = supabase.table("leads").select("*").order("created_at", desc=True).limit(100).execute()
+        res = supabase_admin.table("leads").select("*").order("created_at", desc=True).limit(100).execute()
         return {"status": "success", "leads": getattr(res, "data", []) or []}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -224,7 +330,7 @@ async def toggle_human_takeover(lead_id: str, payload: dict):
     new_status = str(payload.get("status", "human_takeover")).strip()
     try:
         clean_id = int(lead_id) if lead_id.isdigit() else lead_id
-        res = supabase.table("leads").update({"status": new_status}).eq("id", clean_id).execute()
+        res = supabase_admin.table("leads").update({"status": new_status}).eq("id", clean_id).execute()
         return {"status": "success", "new_status": new_status, "data": getattr(res, "data", [])}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -233,51 +339,10 @@ async def toggle_human_takeover(lead_id: str, payload: dict):
 @router.get("/auth/staff-list", dependencies=_admin_guard)
 async def get_staff_list():
     try:
-        res = supabase.table("staff_users").select("id, name, role, phone").execute()
+        res = supabase_admin.table("staff_users").select("id, name, role, phone").execute()
         return {"users": getattr(res, "data", []) or []}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/auth/pin-login")
-@limiter.limit("10/minute")
-async def pin_login(request: Request, payload: dict):
-    identifier = str(payload.get("identifier", "")).strip().lower()
-    pin = str(payload.get("pin", "")).strip()
-
-    if not pin:
-        raise HTTPException(status_code=400, detail="PIN is required")
-
-    clean_digits = "".join(c for c in identifier if c.isdigit())
-    if clean_digits.startswith("254") and len(clean_digits) == 12:
-        core_digits = clean_digits[3:]
-    elif clean_digits.startswith("0") and len(clean_digits) == 10:
-        core_digits = clean_digits[1:]
-    else:
-        core_digits = clean_digits
-
-    try:
-        res = supabase_admin.table("staff_users").select("*").execute()
-        users = getattr(res, "data", []) or []
-        for u in users:
-            u_pin = str(u.get("pin_code", "")).strip()
-            u_phone = str(u.get("phone", "")).strip().replace("+", "").replace(" ", "")
-            u_name = str(u.get("name", "")).strip().lower()
-            if u_pin == pin:
-                if not identifier or (core_digits and core_digits in u_phone) or (identifier in u_name):
-                    # Never return the PIN back to the client
-                    safe_user = {k: v for k, v in u.items() if k != "pin_code"}
-                    token = create_admin_token({
-                        "sub": str(u.get("id", "")),
-                        "name": u.get("name", "Staff"),
-                        "role": u.get("role", "staff"),
-                    })
-                    return {"status": "success", "access_token": token, "user": safe_user}
-        raise HTTPException(status_code=401, detail="Invalid Phone/Name or PIN")
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 def _find_staff_for_user(user_id: str, email: str):
     """Look up the staff_users row linked to an auth user (by id, then email)."""
@@ -307,7 +372,8 @@ def _find_staff_for_user(user_id: str, email: str):
 async def staff_login(request: Request, payload: StaffLoginPayload):
     """Email + password login for staff (Supabase Auth), issues a staff token."""
     try:
-        res = supabase.auth.sign_in_with_password({
+        auth_client = create_client(supabase_url, supabase_key)
+        res = auth_client.auth.sign_in_with_password({
             "email": payload.email,
             "password": payload.password,
         })
@@ -419,27 +485,29 @@ async def delete_staff(staff_id: str):
     return {"status": "success"}
 
 
+@router.post("/refills")
+async def create_refill_request(payload: RefillRequest, staff: dict = Depends(require_admin)):
     try:
         clean_payload = {
-            "product_id": str(payload.get("product_id", "")),
-            "product_name": str(payload.get("product_name", "Spare Part")),
-            "requested_qty": int(payload.get("requested_qty", 5)),
-            "requested_by_name": str(payload.get("requested_by_name", "Staff")),
-            "supplier_name": str(payload.get("supplier_name", "Direct Importer")),
-            "supplier_phone": str(payload.get("supplier_phone", "254112323814")),
-            "notes": str(payload.get("notes", "")),
-            "status": "pending_approval"
+            "product_id": payload.product_id or None,
+            "product_name": payload.product_name,
+            "requested_qty": payload.requested_qty,
+            "requested_by_name": staff.get("name", "Staff"),
+            "supplier_name": payload.supplier_name,
+            "supplier_phone": payload.supplier_phone,
+            "notes": payload.notes,
+            "status": "pending_approval",
         }
-        res = supabase.table("refill_requests").insert(clean_payload).execute()
+        res = supabase_admin.table("refill_requests").insert(clean_payload).execute()
         return {"status": "success", "data": getattr(res, "data", []) or []}
     except Exception as e:
         print(f"Refill insert error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Could not create the refill request.")
 
 @router.get("/refills", dependencies=_admin_guard)
 async def get_refill_requests():
     try:
-        res = supabase.table("refill_requests").select("*").order("created_at", desc=True).execute()
+        res = supabase_admin.table("refill_requests").select("*").order("created_at", desc=True).execute()
         return {"refills": getattr(res, "data", []) or []}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -447,28 +515,14 @@ async def get_refill_requests():
 @router.patch("/refills/{refill_id}/status", dependencies=_admin_guard)
 async def update_refill_status(refill_id: str, payload: dict):
     new_status = str(payload.get("status", "")).strip()
+    if new_status.lower() not in ("pending_approval", "approved", "fulfilled", "rejected", "cancelled"):
+        raise HTTPException(status_code=400, detail="Unsupported refill status.")
     try:
-        ref_res = supabase.table("refill_requests").select("*").eq("id", refill_id).execute()
-        refill_rows = getattr(ref_res, "data", []) or []
-        if not refill_rows:
-            raise HTTPException(status_code=404, detail="Refill request not found")
-        
-        refill_item = refill_rows[0]
-        prev_status = str(refill_item.get("status", ""))
-        product_id = str(refill_item.get("product_id", "")).strip()
-        add_qty = int(refill_item.get("requested_qty", 0) or 0)
-
-        # Increment product stock on fulfillment
-        if new_status == "fulfilled" and prev_status != "fulfilled" and product_id and product_id != "None":
-            p_res = supabase.table("products").select("stock_quantity").eq("id", product_id).execute()
-            p_rows = getattr(p_res, "data", []) or []
-            if p_rows:
-                curr_stock = int(p_rows[0].get("stock_quantity") or 0)
-                new_stock = curr_stock + add_qty
-                supabase.table("products").update({"stock_quantity": new_stock}).eq("id", product_id).execute()
-
-        res = supabase.table("refill_requests").update({"status": new_status}).eq("id", refill_id).execute()
-        return {"status": "success", "new_status": new_status, "data": getattr(res, "data", [])}
+        result = supabase_admin.rpc("fulfill_refill_request", {
+            "p_refill_id": refill_id,
+            "p_new_status": new_status.lower(),
+        }).execute()
+        return {"status": "success", "new_status": new_status.lower(), "data": result.data}
     except HTTPException:
         raise
     except Exception as e:
@@ -477,12 +531,12 @@ async def update_refill_status(refill_id: str, payload: dict):
 @router.get("/analytics", dependencies=_admin_guard)
 async def get_analytics():
     try:
-        orders_res = supabase.table("orders").select("*").execute()
-        products_res = supabase.table("products").select("*").execute()
+        orders_res = supabase_admin.table("orders").select("*").execute()
+        products_res = supabase_admin.table("products").select("*").execute()
         all_orders = getattr(orders_res, "data", []) or []
         all_products = getattr(products_res, "data", []) or []
 
-        paid_orders = [o for o in all_orders if o.get("status") in ["Paid", "Fulfilled"]]
+        paid_orders = [o for o in all_orders if o.get("payment_status") == "paid"]
         total_rev = sum(float(o.get("total_amount") or o.get("total") or 0) for o in paid_orders)
         depleted = [p for p in all_products if int(p.get("stock_quantity", 0) or 0) <= 2]
 

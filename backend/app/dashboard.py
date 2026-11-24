@@ -389,10 +389,17 @@ Thank you for choosing AyuTech Motors!"""
             try:
                 res = admin_patch(f"/admin/orders/{order_id}/status", json={"status": "Fulfilled"}, timeout=4)
                 if res.status_code == 200:
-                    show_toast("Order Fulfilled & Stock Deducted!")
+                    show_toast("Order marked fulfilled.")
                     fetch_all_orders()
                     fetch_all_products()
                     render_current_tab()
+                else:
+                    detail = res.text
+                    try:
+                        detail = res.json().get("detail", detail)
+                    except Exception:
+                        pass
+                    show_toast(f"Could not fulfill order: {detail}", is_error=True)
             except Exception as err:
                 show_toast(f"Failed: {err}", is_error=True)
 
@@ -722,18 +729,8 @@ Thank you for choosing AyuTech Motors!"""
             for idx, item in enumerate(pos_cart):
                 p = item["product"]
                 pn = p.get("part_number") or "N/A"
-                price_input = ft.TextField(value=str(int(item["sale_price"])), width=90, height=36, text_size=12, text_align=ft.TextAlign.RIGHT, content_padding=ft.padding.all(6))
+                price_input = ft.TextField(value=str(int(item["sale_price"])), width=90, height=36, text_size=12, text_align=ft.TextAlign.RIGHT, content_padding=ft.padding.all(6), read_only=True)
                 qty_input = ft.TextField(value=str(int(item["qty"])), width=50, height=36, text_size=12, text_align=ft.TextAlign.CENTER, content_padding=ft.padding.all(6))
-
-                def on_price_change(e, itm=item, pi=price_input):
-                    try:
-                        raw_value = (pi.value or "").strip()
-                        itm["sale_price"] = float(raw_value or 0)
-                    except (TypeError, ValueError):
-                        itm["sale_price"] = 0
-                    total = sum(float(it["sale_price"]) * int(it["qty"]) for it in pos_cart)
-                    cart_total_display.value = f"KES {total:,.0f}"
-                    cart_total_display.update()
 
                 def on_qty_change(e, itm=item, qi=qty_input):
                     try:
@@ -745,7 +742,6 @@ Thank you for choosing AyuTech Motors!"""
                     cart_total_display.value = f"KES {total:,.0f}"
                     cart_total_display.update()
 
-                price_input.on_change = on_price_change
                 qty_input.on_change = on_qty_change
 
                 cart_table_column.controls.append(
@@ -785,60 +781,49 @@ Thank you for choosing AyuTech Motors!"""
             alert_text = "*⚠️ AYUTECH INVENTORY ALERT: LOW STOCK*\n" + "\n".join(low_stock_list)
             open_whatsapp_chat(page, "254112323814", alert_text)
 
-    def checkout_cart(payment_mode: str = "CASH", checkout_request_id: str | None = None):
+    def checkout_cart(payment_mode: str = "CASH", payment_reference: str = "", notes: str = ""):
         if not pos_cart:
             show_toast("No items in POS cart!", is_error=True)
             return
 
-        total_val = sum(float(item["sale_price"]) * int(item["qty"]) for item in pos_cart)
-        order_ref = f"{'CSH' if payment_mode == 'CASH' else 'MPS'}-{datetime.now().strftime('%H%M%S')}"
         cust_phone = (cust_phone_input.value or "").strip()
-        staff_label = f"{current_user.get('name', 'Staff')} ({current_user.get('phone') or 'Counter'})"
-
-        order_items = []
-        for item in pos_cart:
-            p = item["product"]
-            sold_qty = int(item["qty"])
-            unit_price = float(item["sale_price"])
-            curr_stock = int(p.get("stock_quantity", 0) or 0)
-            new_stock = max(0, curr_stock - sold_qty)
-
-            try:
-                admin_patch(f"/admin/products/{p['id']}", json={"stock_quantity": new_stock}, timeout=4)
-            except Exception as e:
-                print(f"Stock deduct warning: {e}")
-
-            order_items.append({
-                "id": p["id"],
-                "name": p.get("name"),
-                "part_number": p.get("part_number", ""),
-                "price": unit_price,
-                "qty": sold_qty
-            })
-
-        order_payload = {
-            "order_reference": order_ref,
-            "customer_phone": cust_phone or f"Walk-in {payment_mode}",
-            "total_amount": total_val,
-            "status": "Pending PIN" if payment_mode == "M-PESA" else "Fulfilled",
-            "receipt_number": f"{payment_mode}-{staff_label}",
-            "fulfillment": f"Shop Counter {payment_mode} - Sold by {staff_label}",
-            "items": order_items,
-            "created_at": datetime.now().isoformat()
+        order_items = [{
+            "id": str(item["product"]["id"]),
+            "name": item["product"].get("name", "Spare Part"),
+            "part_number": item["product"].get("part_number", ""),
+            "price": float(item["product"].get("price") or 0),
+            "qty": int(item["qty"]),
+        } for item in pos_cart]
+        payload = {
+            "items": [{"id": item["id"], "qty": item["qty"]} for item in order_items],
+            "payment_method": "M-Pesa" if payment_mode == "M-PESA" else payment_mode.title(),
+            "customer_phone": cust_phone,
+            "payment_reference": payment_reference,
+            "notes": notes,
         }
-        if checkout_request_id:
-            order_payload["checkout_request_id"] = str(checkout_request_id)
-
         try:
-            admin_post(f"/admin/orders", json=order_payload, timeout=4)
-        except Exception as e:
-            print(f"Failed to record order: {e}")
-
-        if payment_mode != "M-PESA":
-            if cust_phone:
-                send_customer_receipt_whatsapp(cust_phone, order_ref, payment_mode, total_val, order_items)
+            res = admin_post("/admin/pos/sale", json=payload, timeout=20)
+            if res.status_code not in (200, 201):
+                detail = res.text
+                try:
+                    detail = res.json().get("detail", detail)
+                except Exception:
+                    pass
+                show_toast(f"Sale failed: {detail}", is_error=True)
+                return
+            sale = res.json()
+            order_ref = sale["order_reference"]
+            total_val = float(sale["total"])
+            if sale.get("status") == "pending_payment":
+                show_toast(f"STK prompt sent for order {order_ref}. Confirm payment before dispatch.")
+            else:
+                if cust_phone:
+                    send_customer_receipt_whatsapp(cust_phone, order_ref, payment_mode, total_val, order_items)
+                show_toast(f"✅ {payment_mode} Sale Completed! KES {total_val:,.0f}")
             check_and_alert_low_stock(order_items)
-            show_toast(f"✅ {payment_mode} Sale Completed! KES {total_val:,.0f}")
+        except Exception as e:
+            show_toast(f"Sale failed: {e}", is_error=True)
+            return
 
         pos_cart.clear()
         recalculate_pos_total()
@@ -857,27 +842,8 @@ Thank you for choosing AyuTech Motors!"""
             show_toast("Please enter a valid customer phone (e.g., 07... or 254...)", is_error=True)
             return
 
-        total_val = sum(float(item["sale_price"]) * int(item["qty"]) for item in pos_cart)
-        order_ref = f"MPS-{datetime.now().strftime('%H%M%S')}"
-
-        show_toast(f"Sending STK prompt of KES {total_val:,.0f} to {clean_phone}...")
-
-        try:
-            res = httpx.post(
-                f"{API_BASE_URL}/payments/pos-stk-push",
-                json={"phone": clean_phone, "amount": total_val, "order_reference": order_ref},
-                timeout=15
-            )
-            if res.status_code == 200:
-                resp_json = res.json()
-                checkout_id = resp_json.get("checkout_request_id") or resp_json.get("data", {}).get("CheckoutRequestID", "")
-                show_toast("✅ STK Push sent! Awaiting customer PIN on phone.")
-                checkout_cart("M-PESA", checkout_request_id=checkout_id)
-            else:
-                err_msg = res.json().get("detail", res.text)
-                show_toast(f"STK Push Failed: {err_msg}", is_error=True)
-        except Exception as err:
-            show_toast(f"Network error: {err}", is_error=True)
+        cust_phone_input.value = clean_phone
+        checkout_cart("M-PESA")
 
     def open_manual_override_dialog(e=None):
         if not pos_cart:
@@ -915,7 +881,7 @@ Thank you for choosing AyuTech Motors!"""
                     "id": str(item["product"]["id"]),
                     "name": item["product"].get("name", "Spare Part"),
                     "part_number": item["product"].get("part_number", ""),
-                    "price": item["sale_price"],
+                    "price": item["product"].get("price", 0),
                     "qty": item["qty"]
                 }
                 for item in pos_cart
@@ -936,14 +902,16 @@ Thank you for choosing AyuTech Motors!"""
                 res = admin_post(f"/admin/orders/manual-override", json=payload, timeout=5)
                 if res.status_code == 200:
                     dlg_override.open = False
-                    order_ref = res.json().get("order_reference", f"MAN-{datetime.now().strftime('%H%M%S')}")
+                    sale = res.json()
+                    order_ref = sale.get("order_reference", f"MAN-{datetime.now().strftime('%H%M%S')}")
+                    confirmed_total = float(sale.get("total", 0))
 
                     if cust_phone and cust_phone != "Walk-in Customer":
-                        send_customer_receipt_whatsapp(cust_phone, order_ref, method_dropdown.value, total_val, order_items)
+                        send_customer_receipt_whatsapp(cust_phone, order_ref, method_dropdown.value, confirmed_total, order_items)
 
                     check_and_alert_low_stock(order_items)
 
-                    show_toast(f"✅ Verified & Recorded: {ref_code}")
+                    show_toast(f"✅ Verified & Recorded: {ref_code} (KES {confirmed_total:,.0f})")
                     pos_cart.clear()
                     recalculate_pos_total()
                     fetch_all_products()

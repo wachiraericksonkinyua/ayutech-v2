@@ -34,6 +34,12 @@ def build_track_page(page: ft.Page, back_callback):
         bgcolor=C.field(), text_size=13, height=45,
         keyboard_type=ft.KeyboardType.PHONE,
     )
+    reference_field = ft.TextField(
+        label="Order reference",
+        hint_text="e.g. AYU-000123",
+        border_color="red", focused_border_color=C.accent(),
+        bgcolor=C.field(), text_size=13, height=45,
+    )
 
     result_col = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO)
     spinner = ft.ProgressRing(width=26, height=26, stroke_width=3, color=C.accent(), visible=False)
@@ -84,7 +90,7 @@ def build_track_page(page: ft.Page, back_callback):
             col_children.extend([
                 ft.Divider(height=14, color=C.divider()),
                 ft.Row([
-                    ft.Text(f"KES {float(o.get('total') or 0):,.0f}", size=15, weight=ft.FontWeight.BOLD, color=C.accent()),
+                    ft.Text(f"KES {float(o.get('total_amount') or o.get('total') or 0):,.0f}", size=15, weight=ft.FontWeight.BOLD, color=C.accent()),
                     ft.Text(f"{o.get('payment_method') or ''}  •  {o.get('fulfillment') or ''}", size=11, color=C.muted()),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ])
@@ -105,16 +111,25 @@ def build_track_page(page: ft.Page, back_callback):
 
     def do_track(e):
         phone = "".join(ch for ch in (phone_field.value or "") if ch.isdigit())
+        order_reference = (reference_field.value or "").strip()
         if len(phone) < 9:
             notify(page, "Enter a valid phone number (e.g. 0712345678).", C.accent(), ft.icons.ERROR_OUTLINE, title="Invalid Phone")
+            return
+        if not order_reference:
+            notify(page, "Enter the order reference from your confirmation.", C.accent(), ft.icons.ERROR_OUTLINE, title="Missing Reference")
             return
         result_col.controls.clear()
         spinner.visible = True
         page.update()
         try:
-            res = httpx.get(f"{API_BASE_URL}/orders/track/{phone}", timeout=10)
+            res = httpx.post(
+                f"{API_BASE_URL}/orders/track",
+                json={"order_reference": order_reference, "phone": phone},
+                timeout=10,
+            )
             if res.status_code == 200:
-                orders = res.json().get("orders", [])
+                order = res.json().get("order")
+                orders = [order] if order else []
             else:
                 orders = []
                 try:
@@ -148,7 +163,8 @@ def build_track_page(page: ft.Page, back_callback):
             ft.Container(
                 padding=ft.padding.only(left=15, right=15),
                 content=ft.Column([
-                    ft.Text("Enter the phone number you used at checkout to see your latest orders and payment status.", size=12, color=C.body()),
+                    ft.Text("Enter the order reference and phone number used at checkout to check payment status.", size=12, color=C.body()),
+                    reference_field,
                     phone_field,
                     ft.Row([track_btn, spinner], spacing=10),
                     ft.Container(height=8),

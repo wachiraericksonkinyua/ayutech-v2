@@ -1,126 +1,259 @@
-import uuid
-from typing import List, Optional
-from pydantic import BaseModel
-from fastapi import APIRouter, HTTPException, Request, Depends
+"""
+Order, tracking, and payment-refresh endpoints for the customer API.
+
+Requires backend/001_endpoint_hardening.sql, and `supabase` must be the SERVICE-ROLE client.
+"""
+import logging
+import re
+from typing import Any, List, Optional, cast
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
+
 from app.services.daraja_service import DarajaService
-from app.db.supabase_client import supabase
+from app.db.supabase_client import supabase_admin as supabase  # service-role client (bypasses RLS)
 from app.core.rate_limiter import limiter
 from app.core.auth_deps import get_current_user
-import re
 
+log = logging.getLogger("orders")
 router = APIRouter()
 
-class OrderItem(BaseModel):
-    id: str
-    name: str
-    price: float
-    qty: int
-    image: Optional[str] = ""
+
+# --------------------------------------------------------------- helpers
+def normalize_msisdn(raw: str) -> str:
+    """Return 2547XXXXXXXX / 2541XXXXXXXX or raise 400."""
+    d = re.sub(r"\D", "", raw or "")
+    if len(d) == 10 and d.startswith("0"):
+        d = "254" + d[1:]
+    elif len(d) == 9 and d[0] in "17":
+        d = "254" + d
+    if not re.fullmatch(r"254[17]\d{8}", d):
+        raise HTTPException(status_code=400, detail="Enter a valid Kenyan phone number.")
+    return d
+
+
+def _is_mpesa(method: str) -> bool:
+    m = re.sub(r"[^a-z]", "", (method or "").lower())
+    return m in {"mpesa", "mpesastk", "mpesastkpush"} or (
+        "mpesa" in m and ("stk" in m or "push" in m)
+    )
+
+
+# ----------------------------------------------------- shared order service
+async def place_order_and_charge(
+    *,
+    customer_id: Optional[str],
+    phone: str,
+    fulfillment: str,
+    location: str,
+    delivery_address: str,
+    payment_method: str,
+    items: List[dict],          # [{"id": product_id, "qty": int}]
+    channel: str = "app",       # app | web | pos | whatsapp
+    sold_by: Optional[str] = None,   # staff_users.id
+) -> dict:
+    """Used by the website/app checkout AND by WhatsApp staff selling.
+    Prices, delivery fee, stock: all decided in the database, never by the caller."""
+    phone = (
+        normalize_msisdn(phone)
+        if phone or _is_mpesa(payment_method)
+        else "walk-in"
+    )
+    if not items or len(items) > 30:
+        raise HTTPException(400, "Invalid cart.")
+    for item in items:
+        try:
+            quantity = int(item.get("qty", 0))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Invalid cart.")
+        if not str(item.get("id", "")).strip() or not 1 <= quantity <= 1000:
+            raise HTTPException(400, "Invalid cart.")
+
+    try:
+        res = supabase.rpc("create_order", {
+            "p_customer_id": customer_id,
+            "p_phone": phone,
+            "p_fulfillment": fulfillment,
+            "p_location": location or "",
+            "p_delivery_address": (delivery_address or "").strip()[:300],
+            "p_payment_method": payment_method,
+            "p_channel": channel,
+            "p_sold_by": sold_by,
+            "p_items": [{"id": i["id"], "qty": int(i["qty"])} for i in items],
+        }).execute()
+    except Exception as e:
+        msg = str(e)
+        if "out_of_stock" in msg:
+            raise HTTPException(409, "One or more items are out of stock.")
+        if "unknown_delivery_zone" in msg:
+            raise HTTPException(400, "We don't deliver to that location yet.")
+        if "unknown_product" in msg:
+            raise HTTPException(400, "One or more cart items are no longer available.")
+        if "bad_qty" in msg or "empty_cart" in msg:
+            raise HTTPException(400, "Invalid cart.")
+        log.exception("create_order failed")
+        raise HTTPException(500, "Could not create the order. Please try again.")
+
+    order = cast(dict[str, Any], res.data[0] if isinstance(res.data, list) else res.data)
+    if not order:
+        raise HTTPException(500, "Could not create the order. Please try again.")
+
+    checkout_id = ""
+    if _is_mpesa(payment_method):
+        try:
+            stk = await DarajaService().send_stk_push(
+                phone_number=phone,
+                amount=int(round(float(order["total_amount"]))),
+                account_reference=order["order_reference"],
+                transaction_desc="Auto Parts Order",
+            )
+            checkout_id = (stk or {}).get("CheckoutRequestID", "")
+            if not checkout_id:
+                raise RuntimeError(f"No CheckoutRequestID in response: {stk}")
+            linked = supabase.table("orders").update(
+                {"checkout_request_id": checkout_id}
+            ).eq("id", order["id"]).eq("payment_status", "pending").select("id").execute()
+            if not getattr(linked, "data", None):
+                raise RuntimeError("Could not link the STK request to the order.")
+        except Exception:
+            log.exception("STK push failed for %s", order["order_reference"])
+            # No fake 'sim_' ids: cancel the order and give the stock back.
+            supabase.rpc("release_order_stock",
+                         {"p_order_id": order["id"], "p_new_status": "Payment Failed"}).execute()
+            raise HTTPException(502, "Could not start the M-Pesa payment. You were not charged. Try again.")
+
+    return {
+        "order": order,
+        "checkout_request_id": checkout_id,
+    }
+
+
+# -------------------------------------------------------------- endpoints
+class CartLine(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    qty: int = Field(ge=1, le=1000)
+
 
 class CheckoutRequest(BaseModel):
-    phone: str
-    fulfillment: str
-    location: str
-    delivery_address: str = ""
-    payment_method: str
-    items: List[OrderItem]
-    total: float
-    customer_id: Optional[str] = None
+    # Extra fields (price, total, customer_id) sent by old clients are ignored.
+    phone: str = Field(default="", max_length=32)
+    fulfillment: str = Field(min_length=1, max_length=40)
+    location: str = Field(default="", max_length=120)
+    delivery_address: str = Field(default="", max_length=300)
+    payment_method: str = Field(min_length=1, max_length=40)
+    items: List[CartLine] = Field(min_items=1, max_items=30)
 
-class VerifyReceiptRequest(BaseModel):
-    order_reference: str
-    receipt_number: str
 
 @router.post("/checkout", status_code=201)
 @limiter.limit("5/minute")
-async def process_checkout(request: Request, payload: CheckoutRequest):
+async def process_checkout(request: Request, payload: CheckoutRequest,
+                           user: dict = Depends(get_current_user)):
+    if not payload.items or len(payload.items) > 30:
+        raise HTTPException(400, "Invalid cart.")
+    if payload.fulfillment.lower() not in ("pickup", "delivery"):
+        raise HTTPException(400, "Invalid fulfillment option.")
+    result = await place_order_and_charge(
+        customer_id=str(user["id"]),
+        phone=payload.phone,
+        fulfillment=payload.fulfillment,
+        location=payload.location,
+        delivery_address=payload.delivery_address,
+        payment_method=payload.payment_method,
+        items=[i.dict() for i in payload.items],
+        channel="app",
+    )
+    order = result["order"]
+    return {
+        "status": "success",
+        "message": "STK prompt sent to phone" if result["checkout_request_id"] else "Order received",
+        "order_id": order["order_reference"],
+        "total": float(order["total_amount"]),   # the app must show THIS total
+        "checkout_request_id": result["checkout_request_id"],
+    }
+
+
+class TrackRequest(BaseModel):
+    order_reference: str
+    phone: str
+
+
+@router.post("/track")
+@limiter.limit("10/minute")
+async def track_order(request: Request, body: TrackRequest):
+    """Public tracking needs the reference AND the phone used on the order.
+    Returns status only: no receipt numbers, no item list, no other orders."""
+    phone = normalize_msisdn(body.phone)
+    ref = (body.order_reference or "").strip().upper()
+    res = supabase.table("orders").select(
+        "order_reference,status,payment_status,fulfillment,created_at,total_amount"
+    ).eq("order_reference", ref).eq("customer_phone", phone).limit(1).execute()
+    rows = res.data or []
+    if not rows:
+        # same answer whether the ref or the phone was wrong
+        raise HTTPException(404, "No matching order.")
+    return {"status": "success", "order": cast(dict[str, Any], rows[0])}
+
+
+def _get_owned_order(order_ref: str, user: dict) -> dict[str, Any]:
+    res = supabase.table("orders").select("*") \
+        .eq("order_reference", (order_ref or "").strip().upper()).limit(1).execute()
+    rows = res.data or []
+    if not rows:
+        raise HTTPException(404, "Order not found.")
+    row = cast(dict[str, Any], rows[0])
+    if str(row.get("customer_id")) != str(user.get("id")):
+        raise HTTPException(404, "Order not found.")
+    return row
+
+
+@router.get("/status/{order_ref}")
+async def get_order_status(order_ref: str, user: dict = Depends(get_current_user)):
+    o = _get_owned_order(order_ref, user)
+    return {
+        "order_reference": o["order_reference"],
+        "status": o.get("status"),
+        "payment_status": o.get("payment_status"),
+        "receipt_number": o.get("receipt_number") or "",
+    }
+
+
+@router.post("/{order_ref}/refresh-payment")
+@limiter.limit("6/minute")
+async def refresh_payment(request: Request, order_ref: str,
+                          user: dict = Depends(get_current_user)):
+    """Replaces /verify-receipt. NEVER accepts a typed receipt. If the callback
+    was lost, ask Daraja directly about this order's own CheckoutRequestID."""
+    o = _get_owned_order(order_ref, user)
+    if o.get("payment_status") == "paid":
+        return {"status": "success", "message": "Payment already confirmed."}
+
+    checkout_id = str(o.get("checkout_request_id") or "").strip()
+    if not checkout_id:
+        raise HTTPException(400, "No M-Pesa payment was started for this order.")
+
     try:
-        order_uuid = str(uuid.uuid4())
-        short_ref = f"AYU-{order_uuid[:4]}"
-        checkout_request_id = ""
+        q = await DarajaService.query_stk_status(checkout_id)
+    except Exception:
+        log.exception("STK query failed")
+        raise HTTPException(502, "Could not reach M-Pesa. Try again shortly.")
 
-        # 1. Trigger Daraja STK Push (Re-enabled)
-        if "M-Pesa" in payload.payment_method:
-            try:
-                daraja = DarajaService()
-                stk_res = await daraja.send_stk_push(
-                    phone_number=payload.phone,
-                    amount=int(payload.total),
-                    account_reference=short_ref,
-                    transaction_desc="Auto Parts Order"
-                )
-                checkout_request_id = stk_res.get("CheckoutRequestID", "")
-            except Exception as stk_err:
-                print(f"Daraja STK Push warning: {stk_err}")
-                checkout_request_id = f"sim_{short_ref}"
-
-
-        # Validate customer_id to ensure it's a valid non-empty UUID string
-        valid_customer_id = None
-        if payload.customer_id and str(payload.customer_id).strip() not in ["", "None", "null"]:
-            valid_customer_id = str(payload.customer_id).strip()
-
-        order_record = {
-            "id": order_uuid,
-            "order_reference": short_ref,
-            "checkout_request_id": checkout_request_id,
-            "customer_id": valid_customer_id, # Safely sanitized UUID or None
-            "customer_phone": payload.phone,
-            "phone": payload.phone,
-            "fulfillment": payload.fulfillment,
-            "location": payload.location,
-            "delivery_address": (payload.delivery_address or "").strip(),
-            "payment_method": payload.payment_method,
-            "total": payload.total,
-            "total_amount": payload.total,
-            "status": "Pending PIN" if "M-Pesa" in payload.payment_method else "Processing",
-            "items": [item.dict() for item in payload.items]
-        }
-
-        try:
-            supabase.table("orders").insert(order_record).execute()
-        except Exception as db_err:
-            # delivery_address column may not exist yet on old DBs - retry without it
-            print(f"Supabase DB insert error: {db_err}")
-            try:
-                order_record.pop("delivery_address", None)
-                supabase.table("orders").insert(order_record).execute()
-            except Exception as db_err2:
-                print(f"Supabase DB insert retry error: {db_err2}")
-
-        return {
-            "status": "success",
-            "message": "STK prompt sent to phone",
-            "order_id": short_ref,
-            "checkout_request_id": checkout_request_id
-        }
-
-    except Exception as e:
-        print(f"Checkout exception: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/track/{phone}")
-async def track_order_by_phone(phone: str):
-    """Public order tracking by phone number - no login required."""
-    try:
-        clean_phone = re.sub(r"[^0-9]", "", (phone or ""))
-        if len(clean_phone) < 9:
-            raise HTTPException(status_code=400, detail="Enter a valid phone number.")
-
-        res = supabase.table("orders").select(
-            "order_reference", "status", "total", "created_at",
-            "payment_method", "fulfillment", "items", "receipt_number",
-        ).or_(f"phone.eq.{clean_phone},customer_phone.eq.{clean_phone}").order("created_at", desc=True).execute()
-
-        orders_list = getattr(res, "data", None) or []
-        return {"status": "success", "orders": orders_list}
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Track order error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    q_data = cast(dict[str, Any], q) if isinstance(q, dict) else {}
+    code = str(q_data.get("ResultCode", ""))
+    if code == "0":
+        # STK Query has no receipt/amount; the amount is what WE requested for this id.
+        result = supabase.rpc("mark_order_paid", {"p_checkout_id": checkout_id}).execute()
+        paid_order = result.data[0] if isinstance(result.data, list) and result.data else result.data
+        if not paid_order or paid_order.get("payment_status") != "paid":
+            raise HTTPException(409, "M-Pesa confirmed, but the order could not be updated.")
+        return {"status": "success", "message": "Payment confirmed by M-Pesa."}
+    if code == "1032":
+        supabase.rpc("release_order_stock",
+                     {"p_order_id": o["id"], "p_new_status": "Cancelled"}).execute()
+        raise HTTPException(400, "The payment was cancelled.")
+    raise HTTPException(400, "Payment not completed yet. Check your phone or retry shortly.")
 
 
+# ------------------------------------------------- kept from the old file
 @router.get("/user/{identifier}")
 async def get_user_orders(identifier: str, current_user: dict = Depends(get_current_user)):
     try:
@@ -150,122 +283,9 @@ async def get_user_orders(identifier: str, current_user: dict = Depends(get_curr
                 res2 = supabase.table("orders").select("*").eq("customer_id", real_id).order("created_at", desc=True).execute()
                 orders_list = res2.data if hasattr(res2, "data") else []
 
-        # NO FALLBACK: If not authenticated or no orders match, return empty list!
         return {"status": "success", "orders": orders_list}
     except HTTPException:
         raise
-    except Exception as e:
-        print(f"Fetch user orders error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    
-@router.get("/status/{order_ref}")
-async def get_order_status(order_ref: str):
-    """Returns the live status + M-Pesa receipt for an order by short reference or UUID."""
-    try:
-        clean_ref = (order_ref or "").strip()
-        if not clean_ref:
-            raise HTTPException(status_code=400, detail="Order reference required.")
-
-        record = None
-        res = supabase.table("orders").select(
-            "status", "receipt_number"
-        ).eq("order_reference", clean_ref).limit(1).execute()
-        records = getattr(res, "data", None) or []
-        if records:
-            record = records[0]
-        else:
-            res2 = supabase.table("orders").select(
-                "status", "receipt_number"
-            ).eq("id", clean_ref).limit(1).execute()
-            records2 = getattr(res2, "data", None) or []
-            if records2:
-                record = records2[0]
-
-        if not isinstance(record, dict):
-            raise HTTPException(status_code=404, detail="Order not found.")
-
-        return {
-            "order_reference": clean_ref,
-            "status": record.get("status", "Pending PIN"),
-            "receipt_number": record.get("receipt_number") or "",
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Order status lookup error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/verify-receipt")
-async def verify_receipt(payload: VerifyReceiptRequest):
-    order_ref = payload.order_reference.strip()
-    user_receipt = (payload.receipt_number or "").strip()
-
-    try:
-        res = supabase.table("orders").select("*").eq("order_reference", order_ref).execute()
-        data = getattr(res, "data", None)
-
-        if not isinstance(data, list) or not data:
-            raise HTTPException(status_code=400, detail="Order reference not found.")
-
-        first_record = data[0]
-        if not isinstance(first_record, dict):
-            raise HTTPException(status_code=400, detail="Order record is invalid.")
-
-        order_id = first_record.get("id")
-        order_status = first_record.get("status")
-        if order_status in ["Paid", "Fulfilled"]:
-            return {"status": "success", "message": "Order is already verified as Paid!"}
-
-        # 1) Authoritative check: query Daraja for the STK transaction status
-        checkout_id = str(first_record.get("checkout_request_id", "") or "")
-        if checkout_id and not checkout_id.startswith("sim_"):
-            try:
-                query_res = await DarajaService.query_stk_status(checkout_id)
-            except Exception as q_err:
-                print(f"Daraja query error: {q_err}")
-                query_res = None
-
-            if query_res and query_res.get("ResultCode") == 0:
-                receipt = "MPESA_PAID"
-                meta = query_res.get("CallbackMetadata", {}).get("Item", [])
-                if isinstance(meta, list):
-                    receipt = next(
-                        (i.get("Value") for i in meta if i.get("Name") == "MpesaReceiptNumber"),
-                        user_receipt or "MPESA_PAID",
-                    )
-                supabase.table("orders").update({
-                    "status": "Paid",
-                    "receipt_number": receipt,
-                }).eq("id", order_id).execute()
-                return {
-                    "status": "success",
-                    "message": "Payment confirmed by M-Pesa!",
-                    "receipt_number": receipt,
-                }
-            if query_res:
-                result_code = query_res.get("ResultCode")
-                if result_code == 1032:
-                    supabase.table("orders").update({"status": "Cancelled"}).eq("id", order_id).execute()
-                    raise HTTPException(status_code=400, detail="This payment was cancelled by the customer.")
-                raise HTTPException(
-                    status_code=400,
-                    detail="Payment not completed on M-Pesa yet. Confirm the transaction or retry shortly.",
-                )
-
-        # 2) Manual override: confirm using the M-Pesa confirmation code entered by the user
-        if user_receipt:
-            supabase.table("orders").update({
-                "status": "Paid",
-                "receipt_number": user_receipt,
-            }).eq("id", order_id).execute()
-            return {
-                "status": "success",
-                "message": "Receipt verified manually.",
-                "receipt_number": user_receipt,
-            }
-
-        raise HTTPException(status_code=400, detail="Payment not detected on M-Pesa network yet.")
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        log.exception("Fetch user orders error")
+        raise HTTPException(status_code=500, detail="Could not load orders.")

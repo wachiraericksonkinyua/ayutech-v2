@@ -4,6 +4,8 @@ import flet as ft
 import httpx
 import datetime
 from app.ui.state import cart, my_orders, API_BASE_URL, current_user_id
+from app.ui import state as app_state
+from app.ui import api as api_client
 from app.ui.notifications import notify
 from app.ui import colors as C
 
@@ -102,7 +104,7 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
             try:
                 if not current_user_id:
                     return
-                res = httpx.get(f"{API_BASE_URL}/auth/profile/{current_user_id}", timeout=8)
+                res = api_client.get(f"/auth/profile/{current_user_id}", timeout=8)
                 if res.status_code == 200:
                     addrs = res.json().get("addresses") or []
                     if isinstance(addrs, list) and addrs:
@@ -287,8 +289,6 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
             for i in cart.values()
         ]
 
-        active_customer_id = current_user_id if current_user_id else None
-
         delivery_address = ""
         if fulfillment_type == "delivery":
             delivery_address = (
@@ -298,18 +298,24 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
             )
 
         order_payload = {
-            "phone": formatted_phone if selected_payment == "mpesa" else "Cash Customer",
-            "fulfillment": "Rider / Courier Delivery" if fulfillment_type == "delivery" else "Shop Pickup",
-            "location": f"{zone_dropdown.value} - {landmark_input.value}" if fulfillment_type == "delivery" else "Kirinyaga Road Shop",
+            "phone": formatted_phone if selected_payment == "mpesa" else "",
+            "fulfillment": fulfillment_type,
+            "location": zone_dropdown.value if fulfillment_type == "delivery" else "Kirinyaga Road Shop",
             "delivery_address": delivery_address,
-            "payment_method": "M-Pesa STK Push" if selected_payment == "mpesa" else "Cash on Pickup",
-            "items": items_payload,
-            "total": float(final_total),
-            "customer_id": active_customer_id  # Safely passes the active user UUID
+            "payment_method": "M-Pesa" if selected_payment == "mpesa" else "Cash on Pickup",
+            "items": [{"id": item["id"], "qty": item["qty"]} for item in items_payload],
         }
         
         try:
-            res = httpx.post(f"{API_BASE_URL}/orders/checkout", json=order_payload, timeout=10)
+            token = app_state.access_token
+            if not token:
+                raise RuntimeError("Your session expired. Please sign in again.")
+            res = httpx.post(
+                f"{API_BASE_URL}/orders/checkout",
+                json=order_payload,
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=10,
+            )
             if res.status_code in [200, 201]:
                 resp_data = res.json()
                 server_order_id = resp_data.get("order_id", f"AYU-{datetime.datetime.now().strftime('%M%S')}")
@@ -317,7 +323,7 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
                 new_order = {
                     "order_id": server_order_id,
                     "date": datetime.datetime.now().strftime("%d %b %Y, %H:%M"),
-                    "total": final_total,
+                    "total": float(resp_data.get("total", final_total)),
                     "status": "Pending PIN" if selected_payment == "mpesa" else "Processing",
                     "items": list(cart.values()),
                     "fulfillment": order_payload["fulfillment"],
@@ -329,34 +335,39 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
                 notify(page, "STK Prompt sent! Enter M-Pesa PIN on your phone.", "#25D366", ft.icons.PHONE_ANDROID, title="M-Pesa Prompt")
                 show_confirmation(new_order)
             else:
-                raise Exception(f"Backend returned {res.status_code}")
+                detail = res.text
+                try:
+                    detail = res.json().get("detail", detail)
+                except Exception:
+                    pass
+                raise RuntimeError(f"Checkout failed ({res.status_code}): {detail}")
         except Exception as err:
-            fallback_order_id = f"AYU-{datetime.datetime.now().strftime('%M%S')}"
-            new_order = {
-                "order_id": fallback_order_id,
-                "date": datetime.datetime.now().strftime("%d %b %Y, %H:%M"),
-                "total": final_total,
-                "status": "Pending PIN" if selected_payment == "mpesa" else "Processing",
-                "items": list(cart.values()),
-                "fulfillment": order_payload["fulfillment"],
-                "payment_method": order_payload["payment_method"]
-            }
-            my_orders.insert(0, new_order)
-            cart.clear()
-            notify(page, "Order recorded! View details in Orders tab.", "#25D366", ft.icons.CHECK_CIRCLE, title="Order Placed")
-            show_confirmation(new_order)
+            checkout_btn.on_click = handle_checkout
+            cta_text.value = "Pay via M-PESA" if selected_payment == "mpesa" else "Confirm Order"
+            notify(page, str(err), C.accent(), ft.icons.ERROR_OUTLINE, title="Checkout Failed")
 
     def show_confirmation(order):
       cart_ref = str(order.get("order_id", "AYU-????"))
       status_text = ft.Text(order.get("status", "Pending PIN"), size=13, weight=ft.FontWeight.BOLD, color=C.warn())
       receipt_text = ft.Text("Payment not yet detected", size=12, color=C.muted())
 
+      def open_orders(e):
+        import app.ui.views.profile_view as profile_mod
+        profile_mod.profile_page_mode = "orders"
+        if callable(switch_tab_callback):
+          switch_tab_callback(3)
+
       def _status_color(st):
         return {"Paid": C.success(), "Processing": C.info(), "Fulfilled": C.success(), "Cancelled": C.danger()}.get(st, C.warn())
 
       def refresh_status():
         try:
-          r = httpx.get(f"{API_BASE_URL}/orders/status/{cart_ref}", timeout=10)
+          token = app_state.access_token
+          r = httpx.get(
+              f"{API_BASE_URL}/orders/status/{cart_ref}",
+              headers={"Authorization": f"Bearer {token}"},
+              timeout=10,
+          )
           if r.status_code == 200:
             data = r.json()
             st = data.get("status", "Pending PIN")
@@ -375,59 +386,23 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
           pass
 
       def do_refresh(e):
-        notify(page, "Checking M-Pesa status...", "#3B82F6", ft.icons.SYNC, title="Status Check")
+        try:
+          token = app_state.access_token
+          r = httpx.post(
+              f"{API_BASE_URL}/orders/{cart_ref}/refresh-payment",
+              headers={"Authorization": f"Bearer {token}"},
+              timeout=12,
+          )
+          if r.status_code not in (200, 201):
+            detail = r.text
+            try:
+              detail = r.json().get("detail", detail)
+            except Exception:
+              pass
+            notify(page, detail, C.accent(), ft.icons.ERROR_OUTLINE, title="Status Check")
+        except Exception as err:
+          notify(page, f"Could not check payment: {err}", C.accent(), ft.icons.ERROR_OUTLINE, title="Status Check")
         refresh_status()
-
-      def open_verify(e):
-        code_field = ft.TextField(
-            label="M-Pesa confirmation code", hint_text="e.g. QRS1234ABCD",
-            text_size=13, border_color=C.accent(), bgcolor=C.field(), height=44,
-        )
-        close_btn = ft.TextButton("Cancel")
-
-        def submit_code(evt):
-          code = (code_field.value or "").strip()
-          if not code:
-            notify(page, "Enter the M-Pesa code from your SMS.", C.accent(), ft.icons.ERROR_OUTLINE, title="Missing Code")
-            return
-          try:
-            r = httpx.post(
-                f"{API_BASE_URL}/orders/verify-receipt",
-                json={"order_reference": cart_ref, "receipt_number": code},
-                timeout=12,
-            )
-            if r.status_code in [200, 201]:
-              notify(page, r.json().get("message", "Payment verified!"), "#16A34A", title="Verified")
-              dlg.open = False
-              page.update()
-              refresh_status()
-            else:
-              detail = "Verification failed."
-              try:
-                detail = r.json().get("detail", detail)
-              except Exception:
-                pass
-              notify(page, detail, C.accent(), ft.icons.ERROR_OUTLINE, title="Verification Failed")
-              refresh_status()
-          except Exception as err:
-            notify(page, f"Verify error: {err}", C.accent(), ft.icons.ERROR_OUTLINE, title="Verification Failed")
-
-        verify_btn = ft.ElevatedButton("Verify Code", bgcolor=C.accent(), color="white", style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=12)), on_click=submit_code)
-        dlg = ft.AlertDialog(
-            modal=True,
-            bgcolor=C.bg(),
-            shape=ft.RoundedRectangleBorder(radius=16),
-            title=ft.Text("Verify Payment", size=16, weight=ft.FontWeight.BOLD, color=C.text()),
-            content=ft.Column([
-                ft.Text("Enter the confirmation code from your M-Pesa SMS for this order.", size=12, color=C.soft()),
-                code_field,
-            ], tight=True, spacing=8),
-            actions=[close_btn, verify_btn],
-        )
-        close_btn.on_click = lambda ev: (setattr(dlg, "open", False), page.update())
-        page.dialog = dlg
-        dlg.open = True
-        page.update()
 
       conf_column = ft.Column(controls=[
           ft.Container(
@@ -460,15 +435,19 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
                   status_text,
                   receipt_text,
                   ft.Row(controls=[
-                      ft.OutlinedButton("Check Status", icon=ft.icons.REFRESH, style=ft.ButtonStyle(color=C.info(), side=ft.BorderSide(1.4, C.info()), shape=ft.RoundedRectangleBorder(radius=12)), on_click=do_refresh),
-                      ft.ElevatedButton("Have a Code? Verify", style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=12)), on_click=open_verify),
+                      ft.OutlinedButton(
+                          "Check M-Pesa Status",
+                          icon=ft.icons.REFRESH,
+                          style=ft.ButtonStyle(color=C.info(), side=ft.BorderSide(1.4, C.info()), shape=ft.RoundedRectangleBorder(radius=12)),
+                          on_click=do_refresh,
+                      ) if "mpesa" in str(order.get("payment_method", "")).lower().replace("-", "") else ft.Text("Pay when you collect your order.", size=11, color=C.soft()),
                   ], spacing=8),
               ], spacing=6, tight=True),
           ),
-          ft.Text("An M-Pesa prompt was sent to your phone (if M-Pesa was selected). Enter your PIN, then tap Check Status.", size=11, color=C.soft()),
+          ft.Text("If you selected M-Pesa, enter your PIN and check the payment status. Cash orders are paid at pickup.", size=11, color=C.soft()),
           ft.Row(controls=[
               ft.FilledButton("Continue Shopping", style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=12)), on_click=lambda e: switch_tab_callback(0) if callable(switch_tab_callback) else None),
-              ft.OutlinedButton("View Orders", style=ft.ButtonStyle(color=C.accent(), shape=ft.RoundedRectangleBorder(radius=12)), on_click=lambda e: switch_tab_callback(3) if callable(switch_tab_callback) else None),
+              ft.OutlinedButton("View Orders", style=ft.ButtonStyle(color=C.accent(), shape=ft.RoundedRectangleBorder(radius=12)), on_click=open_orders),
           ], spacing=8),
       ], scroll=ft.ScrollMode.AUTO, spacing=12, expand=True)
 

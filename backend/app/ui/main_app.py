@@ -12,12 +12,8 @@ from app.ui import colors as C
 from app.ui.views.home_view import build_home_view
 from app.ui.views.browse_view import build_browse_view
 from app.ui.views.cart_view import build_cart_view
-from app.ui.views.orders_view import build_orders_view
 from app.ui.views.profile_view import build_profile_view
 from app.ui.views.product_detail_view import build_product_detail_view
-from app.ui.views.dashboard_view import build_dashboard_view
-
-API_BASE_URL = "https://ayutech-v2.onrender.com/api/v1"
 
 def build_loading_container():
     logo_url = "https://raw.githubusercontent.com/wachiraericksonkinyua/ayutech-v2/main/images/ayutech%20logo.jpg"
@@ -72,22 +68,39 @@ def main(page: ft.Page):
     # Explicit light/dark schemes so native controls follow the toggle.
     theme_mod.configure_themes(page)
 
-    # Set strict mobile window dimensions across Flet versions
+    # Give desktop users a useful starting size; leave browser and mobile
+    # dimensions to their host viewport.
     window = getattr(page, "window", None)
-    if window is not None:
-        window.width = 400
-        window.height = 800
+    platform = str(getattr(page, "platform", "")).lower()
+    is_mobile = platform.endswith(("android", "ios"))
+    if window is not None and not getattr(page, "web", False) and not is_mobile:
+        window.width = 1100
+        window.height = 850
         window.min_width = 360
-        window.min_height = 700
+        window.min_height = 650
         window.resizable = True
-    else:
-        page.window_width = 400
-        page.window_height = 800
+    elif not getattr(page, "web", False) and not is_mobile:
+        page.window_width = 1100
+        page.window_height = 850
         page.window_min_width = 360
-        page.window_min_height = 700
+        page.window_min_height = 650
         page.window_resizable = True
 
-    content_area = ft.Container(expand=True, bgcolor=C.bg())
+    view_host = ft.Container()
+    content_area = ft.Container(
+        expand=True,
+        bgcolor=C.bg(),
+        alignment=ft.alignment.top_center,
+        content=view_host,
+    )
+
+    def set_view(view):
+        width = float(page.width or 400)
+        height = float(page.height or 800)
+        view_host.width = min(width, 1280)
+        view_host.height = height
+        view_host.content = view
+
 
     def theme_surface(mode):
         dark = mode == "dark" or page.theme_mode == ft.ThemeMode.DARK
@@ -101,7 +114,7 @@ def main(page: ft.Page):
     conversation_history = []
 
     # Show loading container immediately on startup
-    content_area.content = build_loading_container()
+    set_view(build_loading_container())
 
     # def fetch_products():
     #     start_time = time.time()
@@ -198,12 +211,12 @@ def main(page: ft.Page):
     def open_product_detail(product):
         floating_footer.visible = False
         draggable_ai.visible = False
-        content_area.content = build_product_detail_view(
+        set_view(build_product_detail_view(
             page, product, lambda: exit_detail_view(), update_cart,
             ask_fitment_callback=lambda p: open_ai_chat(
                 initial=f"Check fitment: is {p.get('name', 'this part')} (KES {float(p.get('price', 0)):,.0f}) compatible and in stock? Tell me which vehicle models it fits."
             ),
-        )
+        ))
         page.update()
 
     def exit_detail_view():
@@ -413,34 +426,33 @@ def main(page: ft.Page):
     def switch_tab(idx: int | None):
         if idx is None:
             idx = 0
+        elif idx == 4:
+            # Keep existing Hub callbacks working after removing the Orders tab.
+            idx = 3
 
-        # Check if user is trying to access protected tabs (Cart=2, Orders=3) while logged out
+        # Cart requires a signed-in customer. Order history lives inside the Hub.
         import app.ui.views.profile_view as profile_mod
         from app.ui.state import current_user_id
         
         is_logged_in = profile_mod.current_logged_in_user is not None or bool(current_user_id)
 
-        if idx in [2, 3] and not is_logged_in:
-            notify(page, "Please sign in or create an account to view cart and orders.", C.danger(), ft.icons.LOCK, title="Access Locked")
+        if idx == 2 and not is_logged_in:
+            notify(page, "Please sign in or create an account to view your cart.", C.danger(), ft.icons.LOCK, title="Access Locked")
             # Force redirect to Hub / Profile tab
-            idx = 4
+            idx = 3
 
         floating_footer.visible = True
         draggable_ai.visible = True
         bottom_nav_bar.selected_index = idx
 
         if idx == 0:
-            content_area.content = build_home_view(page, update_cart, update_wishlist, open_product_detail, switch_tab)
+            set_view(build_home_view(page, update_cart, update_wishlist, open_product_detail, switch_tab))
         elif idx == 1:
-            content_area.content = build_browse_view(page, update_cart, update_wishlist, open_product_detail)
+            set_view(build_browse_view(page, update_cart, update_wishlist, open_product_detail))
         elif idx == 2:
-            content_area.content = build_cart_view(page, change_cart_qty, switch_tab)
+            set_view(build_cart_view(page, change_cart_qty, switch_tab))
         elif idx == 3:
-            content_area.content = build_orders_view(page)
-        elif idx == 4:
-            content_area.content = build_profile_view(page, switch_tab, update_cart, open_product_detail)
-        elif idx == 5:
-            content_area.content = build_dashboard_view(page)
+            set_view(build_profile_view(page, switch_tab, update_cart, open_product_detail))
         page.update()
 
     # --- OAuth / password-recovery callback interception ---------------------
@@ -524,8 +536,7 @@ def main(page: ft.Page):
             ft.NavigationDestination(icon=ft.icons.HOME_OUTLINED, selected_icon=ft.icons.HOME, label="Home"),
             ft.NavigationDestination(icon=ft.icons.GRID_VIEW_OUTLINED, selected_icon=ft.icons.GRID_VIEW, label="Browse"),
             ft.NavigationDestination(icon=ft.icons.SHOPPING_BAG_OUTLINED, selected_icon=ft.icons.SHOPPING_BAG, label="Cart"),
-            ft.NavigationDestination(icon=ft.icons.RECEIPT_LONG_OUTLINED, selected_icon=ft.icons.RECEIPT_LONG, label="Orders"),
-            ft.NavigationDestination(icon=ft.icons.STOREFRONT_OUTLINED, selected_icon=ft.icons.STOREFRONT, label="Hub"),
+            ft.NavigationDestination(icon=ft.icons.STOREFRONT_OUTLINED, selected_icon=ft.icons.STOREFRONT, label="Account"),
         ]
     )
 
@@ -554,7 +565,7 @@ def main(page: ft.Page):
     floating_footer = ft.Container(
         bottom=10,
         left=15,
-        right=15,
+        width=370,
         shadow=C.card_shadow(),
         content=ft.Container(
             bgcolor=C.surface_raised(),
@@ -580,23 +591,47 @@ def main(page: ft.Page):
         shadow=ft.BoxShadow(blur_radius=14, spread_radius=1, color="#33C41E2E")
     )
 
+    ai_user_moved = False
+
     def on_ai_pan_update(e: ft.DragUpdateEvent):
+        nonlocal ai_user_moved
+        ai_user_moved = True
         cur_left = draggable_ai.left if draggable_ai.left is not None else 330
         cur_top = draggable_ai.top if draggable_ai.top is not None else 620
         new_left = cur_left + e.delta_x
         new_top = cur_top + e.delta_y
 
-        draggable_ai.left = max(10, min(340, new_left))
-        draggable_ai.top = max(40, min(700, new_top))
+        width = float(page.width or 400)
+        height = float(page.height or 800)
+        draggable_ai.left = max(10, min(width - 64, new_left))
+        draggable_ai.top = max(40, min(height - 64, new_top))
         draggable_ai.update()
 
     draggable_ai = ft.GestureDetector(
-        left=330,
-        top=620,
+        left=326,
+        top=650,
         content=ai_button_ui,
         on_tap=open_ai_chat,
         on_pan_update=on_ai_pan_update
     )
+
+    def on_page_resize(e):
+        width = float(page.width or 400)
+        height = float(page.height or 800)
+        dock_width = min(max(width - 24, 300), 720)
+        floating_footer.width = dock_width
+        floating_footer.left = max(12, (width - dock_width) / 2)
+        view_host.width = min(width, 1280)
+        view_host.height = height
+        if not ai_user_moved:
+            draggable_ai.left = max(10, width - 74)
+            draggable_ai.top = max(40, height - 150)
+        else:
+            draggable_ai.left = max(10, min(float(draggable_ai.left or 0), width - 64))
+            draggable_ai.top = max(40, min(float(draggable_ai.top or 0), height - 64))
+        page.update()
+
+    page.on_resize = on_page_resize
 
     page.add(
         ft.Stack([
@@ -606,6 +641,7 @@ def main(page: ft.Page):
         ], expand=True)
     )
 
+    on_page_resize(None)
     fetch_products()
     handle_auth_callback()
 

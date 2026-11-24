@@ -1,10 +1,14 @@
+import os
 import flet as ft
 
 
 # backend/app/ui/state.py
 # backend/app/ui/state.py
 
-API_BASE_URL = "https://ayutech-v2.onrender.com/api/v1"
+API_BASE_URL = os.getenv(
+    "AYUTECH_API_BASE_URL",
+    "https://ayutech-v2.onrender.com/api/v1",
+).rstrip("/")
 
 # Global App State
 cart = {}      # {id: {name, price, qty, image}}
@@ -32,4 +36,3 @@ is_dark = False  # resolved brightness, refreshed by theme.apply_theme()
 # ]
 
 user_info = {"email": "", "name": "", "phone": ""}
-API_BASE_URL = "https://ayutech-v2.onrender.com/api/v1"

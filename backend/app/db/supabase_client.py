@@ -14,13 +14,17 @@ if not supabase_url or not supabase_key:
 # Public/publishable client - respects Row Level Security.
 supabase: Client = create_client(supabase_url, supabase_key)
 
-# Server-only privileged client (service-role / secret key).
-# Used to create staff auth users and bypass RLS for admin operations.
+# Server-only privileged client (service-role / secret key). Admin endpoints
+# depend on it to enforce server-side authorization and bypass database RLS.
 # NEVER expose this key to any client application.
-supabase_secret_key: str = os.getenv("SUPABASE_SECRET_KEY", "")
-if supabase_secret_key:
-    supabase_admin: Client = create_client(supabase_url, supabase_secret_key)
-else:
-    # Fall back to the publishable client so the app still imports; admin
-    # operations that need elevated rights will return a clear error.
-    supabase_admin = supabase
+supabase_secret_key = (
+    os.getenv("SUPABASE_SECRET_KEY", "")
+    or os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+).strip()
+if not supabase_secret_key:
+    raise ValueError(
+        "Missing SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY); "
+        "the API requires a server-side service-role key."
+    )
+
+supabase_admin: Client = create_client(supabase_url, supabase_secret_key)
