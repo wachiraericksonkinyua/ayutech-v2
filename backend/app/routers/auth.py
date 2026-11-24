@@ -9,7 +9,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, EmailStr, Field
 from typing import Any, cast
 from supabase import create_client
-from app.db.supabase_client import supabase, supabase_url, supabase_key
+from app.db.supabase_client import (
+    supabase,
+    supabase_admin,
+    supabase_url,
+    supabase_key,
+)
 from app.core.rate_limiter import limiter
 from app.core.auth_deps import get_current_user, require_owner
 
@@ -225,7 +230,8 @@ class ProfileUpdate(BaseModel):
 @limiter.limit("5/minute")
 def register_user(request: Request, payload: AuthPayload):
     try:
-        res = supabase.auth.sign_up({
+        auth_client = create_client(supabase_url, supabase_key)
+        res = auth_client.auth.sign_up({
             "email": payload.email,
             "password": payload.password
         })
@@ -238,7 +244,8 @@ def register_user(request: Request, payload: AuthPayload):
 @limiter.limit("10/minute")
 def login_user(request: Request, payload: AuthPayload):
     try:
-        res = supabase.auth.sign_in_with_password({
+        auth_client = create_client(supabase_url, supabase_key)
+        res = auth_client.auth.sign_in_with_password({
             "email": payload.email,
             "password": payload.password
         })
@@ -270,7 +277,8 @@ def forgot_password(request: Request, payload: ForgotPasswordPayload):
         _public_base_url(request) + "/api/v1/auth/reset-callback"
     )
     try:
-        supabase.auth.reset_password_for_email(
+        auth_client = create_client(supabase_url, supabase_key)
+        auth_client.auth.reset_password_for_email(
             payload.email, {"redirect_to": redirect_to}
         )
     except Exception as e:
@@ -378,7 +386,9 @@ def _mirror_customer(user_id: str, email: str) -> None:
         row = {"id": str(user_id), "email": email}
         if email:
             row["username"] = email.split("@")[0]
-        supabase.table("customers").upsert(row, on_conflict="id").execute()
+        # Service-role client: the customers table has RLS enabled, so the
+        # anonymous key cannot insert/select here.
+        supabase_admin.table("customers").upsert(row, on_conflict="id").execute()
     except Exception as db_err:
         print(f"OAuth customer mirror warning: {db_err}")
 
@@ -516,28 +526,30 @@ def get_customer_profile(email: str, current_user: dict = Depends(get_current_us
     if str(current_user.get("email", "")).lower() != email.strip().lower():
         raise HTTPException(status_code=403, detail="You can only access your own account.")
     try:
-        res = supabase.table("customers").select("*").eq("email", email).single()
+        res = supabase_admin.table("customers").select("*").eq("email", email).single().execute()
         data = getattr(res, "data", None) or (res.get("data") if isinstance(res, dict) else None)
         if not data:
             raise HTTPException(status_code=404, detail="Customer profile not found.")
         return data
     except HTTPException:
         raise
-    except Exception:
+    except Exception as e:
+        print(f"Profile fetch by email failed for {email}: {e}")
         raise HTTPException(status_code=404, detail="Customer profile not found.")
 
 
 @router.get("/profile/{user_id}")
 def get_customer_profile_by_id(user_id: str, current_user: dict = Depends(require_owner)):
     try:
-        res = supabase.table("customers").select("*").eq("id", user_id).single()
+        res = supabase_admin.table("customers").select("*").eq("id", user_id).single().execute()
         data = getattr(res, "data", None) or (res.get("data") if isinstance(res, dict) else None)
         if not data:
             raise HTTPException(status_code=404, detail="Customer profile not found.")
         return data
     except HTTPException:
         raise
-    except Exception:
+    except Exception as e:
+        print(f"Profile fetch failed for {user_id}: {e}")
         raise HTTPException(status_code=404, detail="Customer profile not found.")
 
 
@@ -575,7 +587,7 @@ def update_customer_profile(
             raise HTTPException(status_code=400, detail="Nothing to update.")
 
         # Upsert so a mirrored customer row is created if it doesn't exist yet
-        res = supabase.table("customers").upsert({
+        res = supabase_admin.table("customers").upsert({
             "id": user_id,
             **update_data,
         }, on_conflict="id").execute()

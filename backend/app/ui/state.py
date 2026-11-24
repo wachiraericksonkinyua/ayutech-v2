@@ -5,7 +5,7 @@ import os
 # backend/app/ui/state.py
 
 API_BASE_URL = os.getenv(
-    "AYUTECH_API_BASE_URL",
+    "AYUTECH_API_URL",
     "https://ayutech-v2.onrender.com/api/v1",
 ).rstrip("/")
 

@@ -2,11 +2,16 @@
 
 import flet as ft
 import httpx
+import os
 import urllib.parse
 import threading
 import time
 from datetime import datetime, date
-from app.ui.state import API_BASE_URL
+
+API_BASE_URL = os.getenv(
+    "AYUTECH_API_URL",
+    "https://ayutech-v2.onrender.com/api/v1",
+).rstrip("/")
 
 def format_order_date(date_str: str) -> str:
     if not date_str:
@@ -403,6 +408,27 @@ Thank you for choosing AyuTech Motors!"""
             except Exception as err:
                 show_toast(f"Failed: {err}", is_error=True)
 
+        def mark_paid_cash(order_id: str):
+            try:
+                res = admin_post(
+                    f"/admin/orders/{order_id}/record-payment",
+                    json={"payment_method": "Cash"},
+                    timeout=4,
+                )
+                if res.status_code == 200:
+                    show_toast("Order marked paid (cash).")
+                    fetch_all_orders()
+                    render_current_tab()
+                else:
+                    detail = res.text
+                    try:
+                        detail = res.json().get("detail", detail)
+                    except Exception:
+                        pass
+                    show_toast(f"Could not record cash payment: {detail}", is_error=True)
+            except Exception as err:
+                show_toast(f"Failed: {err}", is_error=True)
+
         if not orders_data:
             sales_column.controls.append(
                 ft.Container(
@@ -445,6 +471,14 @@ Thank you for choosing AyuTech Motors!"""
                             "Mark Fulfilled", bgcolor="#2563EB", color="white", height=32,
                             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6)),
                             on_click=lambda e, oid=db_id: mark_fulfilled(oid)
+                        )
+                    )
+                elif str(ord_data.get("payment_status", "")).lower() == "pending":
+                    action_buttons.append(
+                        ft.ElevatedButton(
+                            "Mark paid (cash)", bgcolor="#16A34A", color="white", height=32,
+                            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6)),
+                            on_click=lambda e, oid=db_id: mark_paid_cash(oid)
                         )
                     )
 
