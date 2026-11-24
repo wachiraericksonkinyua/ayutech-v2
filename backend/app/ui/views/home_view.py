@@ -182,7 +182,15 @@ def build_home_view(page: ft.Page, update_cart_callback, update_wishlist_callbac
                     border_radius=8,
                     content=ft.Text("NEW ARRIVALS", size=9, weight=ft.FontWeight.BOLD, color="white"),
                 ),
-                ft.Text("Genuine Toyota & Nissan\nspares in stock.", size=15, weight=ft.FontWeight.BOLD, color="white", height=1.25),
+                ft.Text(
+                    "Genuine Toyota & Nissan\nspares in stock."
+                    if all_products
+                    else "Our product catalog is being updated. Please check back soon.",
+                    size=15,
+                    weight=ft.FontWeight.BOLD,
+                    color="white",
+                    height=1.25,
+                ),
                 ft.Container(height=6),
                 ft.ElevatedButton(
                     "Shop Now",
@@ -273,11 +281,22 @@ def build_home_view(page: ft.Page, update_cart_callback, update_wishlist_callbac
             )
         )
 
+    featured_content = grid if all_products else ft.Container(
+        padding=24,
+        alignment=ft.alignment.center,
+        content=ft.Text(
+            "No products are currently available.",
+            size=13,
+            color=C.soft(),
+            text_align=ft.TextAlign.CENTER,
+        ),
+    )
+
     container.controls = [
         location_header,
         search_bar,
         banner,
         ft.Container(padding=ft.padding.only(left=15, right=15, top=4), content=section_header),
-        ft.Container(padding=ft.padding.symmetric(horizontal=15), content=grid)
+        ft.Container(padding=ft.padding.symmetric(horizontal=15), content=featured_content)
     ]
     return container

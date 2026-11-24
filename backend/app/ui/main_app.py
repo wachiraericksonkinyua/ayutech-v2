@@ -133,40 +133,13 @@ def main(page: ft.Page):
     #     switch_tab(0)
     def fetch_products():
       start_time = time.time()
+      all_products.clear()
       try:
-        # Switch to public /products/ endpoint
         res = httpx.get(f'{API_BASE_URL}/products/', timeout=6, follow_redirects=True)
-        if res.status_code == 200 and len(res.json()) > 0:
-          all_products.clear()
-          all_products.extend(res.json())
+        res.raise_for_status()
+        all_products.extend(res.json())
       except Exception as err:
         print(f'Backend products fetch error: {err}')
-
-      # Fallback default items so the shop is never blank
-      if not all_products:
-        all_products.extend([
-            {
-                'id': 'fallback-1',
-                'name': 'Toyota 1KD Engine Air Cleaner Element',
-                'price': 2500,
-                'category': 'Service Parts',
-                'image_url': 'https://raw.githubusercontent.com/wachiraericksonkinyua/ayutech/main/images/products/brakeparts/drum7l.png',
-            },
-            {
-                'id': 'fallback-2',
-                'name': 'Mazda Demio Front Shock Absorbers',
-                'price': 6500,
-                'category': 'Suspension Parts',
-                'image_url': 'https://raw.githubusercontent.com/wachiraericksonkinyua/ayutech/main/images/products/brakeparts/drum7l.png',
-            },
-            {
-                'id': 'fallback-3',
-                'name': 'Heavy Duty Brake Pads Set',
-                'price': 4200,
-                'category': 'Brake Parts',
-                'image_url': 'https://raw.githubusercontent.com/wachiraericksonkinyua/ayutech/main/images/products/brakeparts/drum7l.png',
-            },
-        ])
 
       elapsed = time.time() - start_time
       if elapsed < 2.0:

@@ -68,7 +68,13 @@ def build_browse_view(page: ft.Page, update_cart_callback, update_wishlist_callb
                 padding=40, alignment=ft.alignment.center,
                 content=ft.Column([
                     ft.Icon(ft.icons.SEARCH_OFF, size=44, color=C.muted()),
-                    ft.Text("No matching auto parts found.", color=C.soft(), size=13),
+                    ft.Text(
+                        "No products are currently available."
+                        if not all_products
+                        else "No matching auto parts found.",
+                        color=C.soft(),
+                        size=13,
+                    ),
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8)
             )
         else:
