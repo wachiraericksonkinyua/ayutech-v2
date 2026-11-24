@@ -16,7 +16,6 @@ import logging
 import os
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any, cast
 
 import bcrypt
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Query, Request, Response

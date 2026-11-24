@@ -11,11 +11,9 @@ import json
 import httpx
 from typing import Optional
 from dotenv import load_dotenv
-from datetime import datetime
 
 load_dotenv()
 
-from app.db.supabase_client import supabase
 from app.services.ai_engine import (
     is_human_takeover_active,
     save_chat_message,

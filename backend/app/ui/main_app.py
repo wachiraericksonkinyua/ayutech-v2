@@ -3,7 +3,6 @@
 import flet as ft
 import httpx
 import time
-from typing import cast
 from app.ui.state import all_products, cart, wishlist, API_BASE_URL
 import app.ui.state as app_state
 from app.ui.notifications import notify

@@ -1,5 +1,4 @@
 import os
-import flet as ft
 
 
 # backend/app/ui/state.py

@@ -1,10 +1,9 @@
 # app/ui/views/profile_view.py
 
-import uuid
 from typing import List, Optional
 import flet as ft
 import httpx
-from app.ui.state import API_BASE_URL, cart, current_user_id, my_orders, user_info, wishlist
+from app.ui.state import API_BASE_URL, cart, my_orders, user_info, wishlist
 from app.ui.notifications import notify, show_top_notification
 from app.ui import theme as theme_mod
 from app.ui.views.track_view import build_track_page

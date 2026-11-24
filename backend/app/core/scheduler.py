@@ -1,4 +1,3 @@
-import os
 from datetime import datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.db.supabase_client import supabase

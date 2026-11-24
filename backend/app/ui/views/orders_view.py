@@ -4,7 +4,7 @@ import json
 import threading
 import time
 import flet as ft
-from app.ui.state import current_user_id, my_orders
+from app.ui.state import my_orders
 from app.ui.notifications import notify
 from app.ui import api as api_client
 from app.ui import colors as C

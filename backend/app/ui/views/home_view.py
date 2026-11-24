@@ -142,7 +142,6 @@ def build_home_view(page: ft.Page, update_cart_callback, update_wishlist_callbac
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
     )
 
-    from app.ui.state import active_search_query
 
     def handle_search(e):
         global active_search_query
