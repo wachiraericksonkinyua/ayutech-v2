@@ -372,8 +372,6 @@ Relevant Inventory:
 
     reply_text = f"We have genuine auto parts in stock at Kirinyaga Road. For '{latest_user_query}', please check our Browse tab or speak with the store directly."
 
-    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
-    
     if groq_key:
         try:
             async with httpx.AsyncClient(timeout=16.0) as client:

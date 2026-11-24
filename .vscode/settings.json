@@ -1,3 +1,11 @@
 {
+    "python.analysis.diagnosticSeverityOverrides": {
+    "reportIndexIssue": "warning",
+    "reportAttributeAccessIssue": "warning",
+    "reportOptionalSubscript": "warning",
+    "reportOptionalMemberAccess": "warning",
+    "reportArgumentType": "warning",
+    "reportCallIssue": "warning"
+    },
     "python-envs.defaultEnvManager": "ms-python.python:system"
 }

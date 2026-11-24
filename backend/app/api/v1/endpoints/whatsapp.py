@@ -22,7 +22,7 @@ from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Query, Re
 
 from app.db.supabase_client import supabase_admin as supabase  # service-role client (bypasses RLS)
 from app.services.whatsapp import send_whatsapp_message, WHATSAPP_TOKEN
-from app.services.vision_service import get_whatsapp_media_url
+from app.services.vision_service import get_whatsapp_media_data_url
 from app.services.triage import run_triage
 from app.api.v1.endpoints.orders import place_order_and_charge  # adjust path
 
@@ -104,7 +104,13 @@ async def _handle_message(msg: dict, from_phone: str):
             return
 
         # ---- customer path: your existing AI triage (it only PROPOSES; code decides)
-        image_url = await get_whatsapp_media_url(media_id, WHATSAPP_TOKEN) if media_id else ""
+        image_url = await get_whatsapp_media_data_url(media_id, WHATSAPP_TOKEN) if media_id else ""
+        if media_id and not image_url:
+            await send_whatsapp_message(
+                from_phone,
+                "I couldn't read that image. Please resend a clear JPG or PNG, or type the part name.",
+            )
+            return
         result = await run_triage(
             message=text or "[Image attached - identify and respond to the part in this photo]",
             customer_phone=from_phone, image_url=image_url, source="whatsapp")

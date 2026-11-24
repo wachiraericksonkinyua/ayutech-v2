@@ -462,8 +462,8 @@ async def _openrouter_vision_fallback(image_url: str) -> str:
     if not key:
         return ""
     try:
-        from app.services.vision_service import get_active_openrouter_vision_model
-        model = await get_active_openrouter_vision_model(key)
+        from app.services.vision_service import get_openrouter_vision_model
+        model = get_openrouter_vision_model()
         async with httpx.AsyncClient() as client:
             res = await client.post(
                 "https://openrouter.ai/api/v1/chat/completions",

@@ -4,12 +4,19 @@ import os
 import uuid
 from app.db.supabase_client import supabase
 
+OPENROUTER_VISION_MODEL = os.getenv(
+    "OPENROUTER_VISION_MODEL",
+    "",
+).strip() or "nvidia/nemotron-3.5-super-vl:free"
+MAX_WHATSAPP_IMAGE_BYTES = 5 * 1024 * 1024
+ALLOWED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
+
 async def get_whatsapp_media_url(media_id: str, whatsapp_token: str) -> str:
     """Fetch temporary media download URL from Meta Graph API."""
     url = f"https://graph.facebook.com/v20.0/{media_id}"
     headers = {"Authorization": f"Bearer {whatsapp_token}"}
     
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         res = await client.get(url, headers=headers)
         if res.status_code == 200:
             return res.json().get("url", "")
@@ -17,38 +24,55 @@ async def get_whatsapp_media_url(media_id: str, whatsapp_token: str) -> str:
         return ""
 
 
-async def get_active_openrouter_vision_model(openrouter_key: str) -> str:
-    """Dynamically fetches active free generative vision models from OpenRouter, skipping moderation models."""
-    headers = {"Authorization": f"Bearer {openrouter_key}"}
-    async with httpx.AsyncClient() as client:
-        try:
-            res = await client.get("https://openrouter.ai/api/v1/models", headers=headers, timeout=10.0)
-            if res.status_code == 200:
-                models = res.json().get("data", [])
-                for model in models:
-                    model_id = model.get("id", "").lower()
-                    
-                    # Skip moderation, guard, or safety models
-                    if any(bad_kw in model_id for bad_kw in ["safety", "guard", "moderation"]):
-                        continue
-                        
-                    if model_id.endswith(":free"):
-                        architecture = model.get("architecture", {})
-                        modality = architecture.get("modality", "")
-                        input_modalities = model.get("input_modalities", [])
-                        
-                        # Match generative vision models
-                        if "image" in modality or "image" in input_modalities or any(v in model_id for v in ["vl", "vision", "flash", "llama-3.2"]):
-                            print(f"✅ Dynamically discovered active free vision model: {model.get('id')}")
-                            return model.get("id")
-        except Exception as e:
-            print(f"⚠️ Failed to query OpenRouter model list: {e}")
-            
-    return "meta-llama/llama-3.2-11b-vision-instruct:free"
+async def get_whatsapp_media_data_url(media_id: str, whatsapp_token: str) -> str:
+    """Download a Meta-hosted image with its required token for vision APIs."""
+    download_url = await get_whatsapp_media_url(media_id, whatsapp_token)
+    if not download_url:
+        return ""
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=20.0) as client:
+            async with client.stream(
+                "GET",
+                download_url,
+                headers={"Authorization": f"Bearer {whatsapp_token}"},
+            ) as response:
+                if response.status_code != 200:
+                    print(f"❌ WhatsApp image download failed: {response.status_code}")
+                    return ""
+
+                content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
+                if content_type not in ALLOWED_IMAGE_CONTENT_TYPES:
+                    print(f"❌ Unsupported WhatsApp image type: {content_type}")
+                    return ""
+
+                content_length = response.headers.get("content-length")
+                if content_length and int(content_length) > MAX_WHATSAPP_IMAGE_BYTES:
+                    print("❌ WhatsApp image exceeds the 5 MB limit.")
+                    return ""
+
+                chunks = []
+                total_bytes = 0
+                async for chunk in response.aiter_bytes():
+                    total_bytes += len(chunk)
+                    if total_bytes > MAX_WHATSAPP_IMAGE_BYTES:
+                        print("❌ WhatsApp image exceeds the 5 MB limit.")
+                        return ""
+                    chunks.append(chunk)
+
+        encoded = base64.b64encode(b"".join(chunks)).decode("ascii")
+        return f"data:{content_type};base64,{encoded}"
+    except (httpx.HTTPError, ValueError) as exc:
+        print(f"❌ WhatsApp image download error: {exc}")
+        return ""
+
+
+def get_openrouter_vision_model() -> str:
+    return OPENROUTER_VISION_MODEL
 
 
 async def describe_part_image(media_id_or_url: str, whatsapp_token: str, groq_api_key: str = "") -> str:
-    """Uploads image to Supabase and identifies spare parts using dynamically selected vision models."""
+    """Uploads image to Supabase and identifies spare parts with OpenRouter vision."""
     if not media_id_or_url:
         return "An image was attached, but media ID/URL could not be retrieved."
 
@@ -93,8 +117,8 @@ async def describe_part_image(media_id_or_url: str, whatsapp_token: str, groq_ap
     except Exception as upload_err:
         print(f"⚠️ Supabase upload warning: {upload_err}")
 
-    # 4. Query OpenRouter dynamically for active model ID
-    active_model = await get_active_openrouter_vision_model(openrouter_key)
+    # 4. Use the configured OpenRouter vision model
+    active_model = get_openrouter_vision_model()
 
     prompt_text = (
         "You are an expert auto spare parts specialist at Ayutech Motors on Kirinyaga Road, Nairobi.\n"
