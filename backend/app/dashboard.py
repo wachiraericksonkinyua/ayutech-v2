@@ -3,15 +3,22 @@
 import flet as ft
 import httpx
 import os
+import mimetypes
 import urllib.parse
 import threading
 import time
+import uuid
 from datetime import datetime, date
 
 API_BASE_URL = os.getenv(
     "AYUTECH_API_URL",
     "https://ayutech-v2.onrender.com/api/v1",
 ).rstrip("/")
+PRODUCT_IMAGE_UPLOAD_DIR = os.getenv(
+    "FLET_UPLOAD_DIR",
+    "/tmp/ayutech-admin-uploads",
+)
+MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024
 
 def format_order_date(date_str: str) -> str:
     if not date_str:
@@ -194,6 +201,27 @@ Thank you for choosing AyuTech Motors!"""
     def open_add_product_dialog(e=None):
         p_name = ft.TextField(label="Spare Part Name", height=42, text_size=12)
         p_num = ft.TextField(label="Part Number", height=42, text_size=12)
+        p_image_url = ft.TextField(
+            label="Product Image URL",
+            read_only=True,
+            height=42,
+            text_size=11,
+            expand=True,
+        )
+        p_image_preview = ft.Image(
+            src="",
+            width=48,
+            height=48,
+            fit=ft.ImageFit.COVER,
+            visible=False,
+        )
+        image_status = ft.Text(
+            "Optional: JPG, PNG, or WebP (max 5 MB)",
+            size=10,
+            color="#6B7280",
+        )
+        pending_web_upload = {}
+
         categories = get_existing_categories()
         cat_options = [ft.dropdown.Option(c) for c in categories] + [ft.dropdown.Option("+ Add New Category")]
         
@@ -217,7 +245,139 @@ Thank you for choosing AyuTech Motors!"""
         p_sup = ft.TextField(label="Supplier Name", value="Direct Importer", height=42, text_size=12)
         p_phone = ft.TextField(label="Supplier Phone", value="254112323814", height=42, text_size=12)
 
+        def finish_image_upload(file_path, file_name, remove_after=False):
+            try:
+                with open(file_path, "rb") as image_file:
+                    contents = image_file.read(MAX_PRODUCT_IMAGE_BYTES + 1)
+                if len(contents) > MAX_PRODUCT_IMAGE_BYTES:
+                    show_toast("Images must be 5 MB or smaller.", is_error=True)
+                    return
+
+                content_type = mimetypes.guess_type(file_name)[0]
+                if content_type == "image/jpg":
+                    content_type = "image/jpeg"
+                if content_type not in {"image/jpeg", "image/png", "image/webp"}:
+                    show_toast("Choose a JPG, PNG, or WebP image.", is_error=True)
+                    return
+
+                response = admin_post(
+                    "/admin/products/upload-image",
+                    files={"image": (os.path.basename(file_name), contents, content_type)},
+                    timeout=30,
+                )
+                if response.status_code != 201:
+                    detail = response.text
+                    try:
+                        detail = response.json().get("detail", detail)
+                    except ValueError:
+                        pass
+                    show_toast(f"Image upload failed: {detail}", is_error=True)
+                    return
+
+                image_url = str(response.json().get("image_url") or "").strip()
+                if not image_url:
+                    show_toast("Image upload returned no public URL.", is_error=True)
+                    return
+
+                p_image_url.value = image_url
+                p_image_preview.src = image_url
+                p_image_preview.visible = True
+                image_status.value = "Image uploaded. Save the product to attach it."
+                page.update()
+                show_toast("Product image uploaded.")
+            except Exception as err:
+                show_toast(f"Image upload failed: {err}", is_error=True)
+            finally:
+                if remove_after:
+                    try:
+                        os.remove(file_path)
+                    except FileNotFoundError:
+                        pass
+                    except OSError as err:
+                        print(f"Temporary image cleanup failed: {err}")
+
+        def on_image_upload(e):
+            if not pending_web_upload:
+                return
+            if e.error:
+                upload = pending_web_upload.copy()
+                pending_web_upload.clear()
+                image_status.value = "Image upload failed. Try again."
+                page.update()
+                try:
+                    os.remove(upload["path"])
+                except FileNotFoundError:
+                    pass
+                except OSError as err:
+                    print(f"Temporary image cleanup failed: {err}")
+                show_toast(f"Browser image upload failed: {e.error}", is_error=True)
+                return
+            if (e.progress or 0) < 1:
+                return
+
+            upload = pending_web_upload.copy()
+            pending_web_upload.clear()
+            finish_image_upload(
+                upload["path"],
+                upload["file_name"],
+                remove_after=True,
+            )
+
+        def on_image_selected(e):
+            if not e.files:
+                return
+            selected = e.files[0]
+            if selected.size > MAX_PRODUCT_IMAGE_BYTES:
+                show_toast("Images must be 5 MB or smaller.", is_error=True)
+                return
+
+            if getattr(page, "web", False):
+                upload_name = f"{uuid.uuid4().hex}_{os.path.basename(selected.name)}"
+                upload_path = os.path.join(PRODUCT_IMAGE_UPLOAD_DIR, upload_name)
+                pending_web_upload.update({
+                    "path": upload_path,
+                    "file_name": selected.name,
+                })
+                image_status.value = "Uploading image from browser..."
+                page.update()
+                try:
+                    image_picker.upload([
+                        ft.FilePickerUploadFile(
+                            name=selected.name,
+                            upload_url=page.get_upload_url(upload_name, 600),
+                        )
+                    ])
+                except Exception as err:
+                    pending_web_upload.clear()
+                    image_status.value = "Image upload failed. Try again."
+                    page.update()
+                    show_toast(f"Could not start image upload: {err}", is_error=True)
+                return
+
+            if not selected.path:
+                show_toast("The selected file is not available to the app.", is_error=True)
+                return
+            finish_image_upload(selected.path, selected.name)
+
+        image_picker = ft.FilePicker(
+            on_result=on_image_selected,
+            on_upload=on_image_upload,
+        )
+        page.overlay.append(image_picker)
+
+        def choose_product_image(e):
+            if pending_web_upload:
+                show_toast("Wait for the current image upload to finish.")
+                return
+            image_picker.pick_files(
+                allow_multiple=False,
+                allowed_extensions=["jpg", "jpeg", "png", "webp"],
+            )
+
         def submit_new_product(ev):
+            if pending_web_upload:
+                show_toast("Wait for the image upload to finish.", is_error=True)
+                return
             chosen_cat = (p_custom_cat.value if p_cat_dropdown.value == "+ Add New Category" else p_cat_dropdown.value) or "General"
             try:
                 payload = {
@@ -227,12 +387,13 @@ Thank you for choosing AyuTech Motors!"""
                     "buying_price": float((p_buy_price.value or "0").strip()) if current_user.get("role") == "admin" else 0.0,
                     "price": float((p_price.value or "0").strip()),
                     "stock_quantity": int((p_stock.value or "0").strip()),
+                    "image_url": (p_image_url.value or "").strip(),
                     "supplier_name": (p_sup.value or "").strip() or "Direct Importer",
                     "supplier_phone": (p_phone.value or "").strip() or "254112323814"
                 }
                 res = admin_post("/admin/products", json=payload, timeout=4)
                 if res.status_code in [200, 201]:
-                    dlg.open = False
+                    close_dialog()
                     show_toast(f"Added {p_name.value} to catalog!")
                     fetch_all_products()
                     render_current_tab()
@@ -241,14 +402,40 @@ Thank you for choosing AyuTech Motors!"""
             except Exception as err:
                 show_toast(f"Error: {err}", is_error=True)
 
+        def close_dialog(ev=None):
+            dlg.open = False
+            if image_picker in page.overlay:
+                page.overlay.remove(image_picker)
+            page.update()
+
         dlg = ft.AlertDialog(
             title=ft.Text("Add Auto Part to Catalog", weight=ft.FontWeight.BOLD),
             content=ft.Container(
                 width=420,
-                content=ft.Column([p_name, p_num, p_cat_dropdown, p_custom_cat, p_buy_price, p_price, p_stock, p_sup, p_phone], tight=True, spacing=8)
+                content=ft.Column([
+                    p_name,
+                    p_num,
+                    p_cat_dropdown,
+                    p_custom_cat,
+                    p_buy_price,
+                    p_price,
+                    p_stock,
+                    p_sup,
+                    p_phone,
+                    ft.Row([
+                        p_image_preview,
+                        p_image_url,
+                        ft.IconButton(
+                            icon=ft.icons.UPLOAD_FILE,
+                            tooltip="Choose product image",
+                            on_click=choose_product_image,
+                        ),
+                    ], spacing=6),
+                    image_status,
+                ], tight=True, spacing=8)
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=lambda ev: (setattr(dlg, "open", False), page.update())),
+                ft.TextButton("Cancel", on_click=close_dialog),
                 ft.ElevatedButton("Save to Catalog", bgcolor="#DC2626", color="white", on_click=submit_new_product)
             ]
         )

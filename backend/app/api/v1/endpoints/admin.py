@@ -1,11 +1,12 @@
 # backend/app/api/v1/endpoints/admin.py
 
 import logging
-from fastapi import APIRouter, HTTPException, Request, Depends
+from fastapi import APIRouter, HTTPException, Request, Depends, File, UploadFile
 from pydantic import BaseModel, EmailStr, Field, ValidationError
 from typing import Optional, List
 from datetime import datetime, timedelta, timezone
 import re
+from uuid import uuid4
 from supabase import create_client
 from app.db.supabase_client import supabase_admin, supabase_url, supabase_key
 from app.core.cache import product_cache
@@ -16,6 +17,12 @@ from app.api.v1.endpoints.orders import place_order_and_charge, _is_mpesa
 
 router = APIRouter()
 log = logging.getLogger("admin")
+MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024
+PRODUCT_IMAGE_TYPES = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+}
 
 # Every route in this router requires a staff token EXCEPT the login routes.
 _admin_guard = [Depends(require_admin)]
@@ -279,6 +286,35 @@ async def get_admin_products():
         return getattr(res, "data", []) or []
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/products/upload-image", status_code=201, dependencies=_admin_guard)
+async def upload_admin_product_image(image: UploadFile = File(...)):
+    content_type = (image.content_type or "").lower()
+    extension = PRODUCT_IMAGE_TYPES.get(content_type)
+    if not extension:
+        raise HTTPException(status_code=400, detail="Choose a JPG, PNG, or WebP image.")
+
+    contents = await image.read(MAX_PRODUCT_IMAGE_BYTES + 1)
+    if not contents:
+        raise HTTPException(status_code=400, detail="The selected image is empty.")
+    if len(contents) > MAX_PRODUCT_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="Images must be 5 MB or smaller.")
+
+    object_path = f"products/{uuid4().hex}.{extension}"
+    try:
+        storage = supabase_admin.storage.from_("product-images")
+        storage.upload(
+            path=object_path,
+            file=contents,
+            file_options={"content-type": content_type},
+        )
+        return {"image_url": storage.get_public_url(object_path)}
+    except Exception:
+        log.exception("Admin product image upload failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Image upload failed. Check that the product-images bucket exists.",
+        )
 
 @router.post("/products", dependencies=_admin_guard)
 async def create_product(item: ProductEditPayload):
