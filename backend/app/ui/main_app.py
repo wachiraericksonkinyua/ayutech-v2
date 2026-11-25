@@ -132,16 +132,22 @@ def main(page: ft.Page):
     #         time.sleep(2.5 - elapsed)
             
     #     switch_tab(0)
-    def fetch_products():
-      start_time = time.time()
-      all_products.clear()
+    def refresh_products():
       try:
         res = httpx.get(f'{API_BASE_URL}/products/', timeout=6, follow_redirects=True)
         res.raise_for_status()
-        all_products.extend(res.json())
+        products = res.json()
+        if not isinstance(products, list):
+          raise ValueError("Product catalog response was not a list.")
+        all_products[:] = products
+        return True
       except Exception as err:
         print(f'Backend products fetch error: {err}')
+        return False
 
+    def fetch_products():
+      start_time = time.time()
+      refresh_products()
       elapsed = time.time() - start_time
       if elapsed < 2.0:
         time.sleep(2.0 - elapsed)
@@ -417,6 +423,7 @@ def main(page: ft.Page):
         if idx == 0:
             set_view(build_home_view(page, update_cart, update_wishlist, open_product_detail, switch_tab))
         elif idx == 1:
+            refresh_products()
             set_view(build_browse_view(page, update_cart, update_wishlist, open_product_detail))
         elif idx == 2:
             set_view(build_cart_view(page, change_cart_qty, switch_tab))
