@@ -6,6 +6,7 @@ import time
 from app.ui.state import all_products, cart, wishlist, API_BASE_URL
 import app.ui.state as app_state
 from app.ui.notifications import notify
+from app.ui.api import sanitize_chat_reply
 from app.ui import theme as theme_mod
 from app.ui import colors as C
 from app.ui.views.home_view import build_home_view
@@ -329,7 +330,7 @@ def main(page: ft.Page):
                 )
                 if res.status_code == 200:
                     data = res.json()
-                    ai_reply = data.get("reply", "No response generated.")
+                    ai_reply = sanitize_chat_reply(data.get("reply"))
                     suggested_prods = data.get("products", [])
                 else:
                     ai_reply = "Could not check catalog right now. Please reach us on WhatsApp."

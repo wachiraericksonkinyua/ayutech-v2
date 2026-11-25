@@ -7,18 +7,18 @@ import flet as ft
 from app.ui.state import API_BASE_URL
 from app.ui import colors as C
 from app.ui.notifications import notify
-
-STATUS_COLORS = {
-    "Pending PIN": "#F59E0B",
-    "Processing": "#3B82F6",
-    "Paid": "#16A34A",
-    "Fulfilled": "#16A34A",
-    "Cancelled": "#EF4444",
-}
-
+from app.ui.api import user_facing_error
 
 def _status_chip(status: str):
-    color = STATUS_COLORS.get(status or "", "#6B7280")
+    normalized = (status or "").strip().lower().replace("_", " ")
+    if normalized in {"paid", "fulfilled", "delivered", "completed"}:
+        color = "#16A34A"
+    elif normalized in {"pending", "pending pin", "processing"}:
+        color = "#D97706"
+    elif normalized in {"cancelled", "canceled", "payment failed", "failed", "error"}:
+        color = "#EF4444"
+    else:
+        color = "#6B7280"
     return ft.Container(
         bgcolor=color, border_radius=10,
         padding=ft.padding.symmetric(horizontal=9, vertical=3),
@@ -43,6 +43,20 @@ def build_track_page(page: ft.Page, back_callback):
 
     result_col = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO)
     spinner = ft.ProgressRing(width=26, height=26, stroke_width=3, color=C.accent(), visible=False)
+    button_spinner = ft.ProgressRing(width=15, height=15, stroke_width=2, color="white", visible=False)
+    button_label = ft.Text("Track My Order", color="white", size=12, weight=ft.FontWeight.BOLD)
+    loading_skeleton = ft.Container(
+        visible=False,
+        padding=14,
+        bgcolor=C.surface(),
+        border=ft.border.all(1, C.divider()),
+        border_radius=14,
+        content=ft.Column([
+            ft.Container(height=14, width=170, bgcolor=C.surface_alt(), border_radius=7),
+            ft.Container(height=10, width=250, bgcolor=C.surface_alt(), border_radius=5),
+            ft.Container(height=10, width=205, bgcolor=C.surface_alt(), border_radius=5),
+        ], spacing=10),
+    )
 
     def _fmt_date(iso_str):
         if not iso_str:
@@ -109,7 +123,7 @@ def build_track_page(page: ft.Page, back_callback):
         )
         page.update()
 
-    def do_track(e):
+    async def do_track(e):
         phone = "".join(ch for ch in (phone_field.value or "") if ch.isdigit())
         order_reference = (reference_field.value or "").strip()
         if len(phone) < 9:
@@ -120,32 +134,73 @@ def build_track_page(page: ft.Page, back_callback):
             return
         result_col.controls.clear()
         spinner.visible = True
+        loading_skeleton.visible = True
+        phone_field.disabled = True
+        reference_field.disabled = True
+        track_btn.disabled = True
+        button_label.value = "Searching..."
+        button_spinner.visible = True
         page.update()
         try:
-            res = httpx.post(
-                f"{API_BASE_URL}/orders/track",
-                json={"order_reference": order_reference, "phone": phone},
-                timeout=10,
-            )
+            async with httpx.AsyncClient(timeout=10) as client:
+                res = await client.post(
+                    f"{API_BASE_URL}/orders/track",
+                    json={"order_reference": order_reference, "phone": phone},
+                )
             if res.status_code == 200:
                 order = res.json().get("order")
                 orders = [order] if order else []
+                _render_orders(orders)
+            elif res.status_code == 404:
+                message = (
+                    "We couldn't find an order with that reference. "
+                    "Please double-check your GWV-XXXXXXX code and try again."
+                )
+                result_col.controls.append(
+                    ft.Container(
+                        padding=14,
+                        bgcolor="#FEF2F2",
+                        border=ft.border.all(1, "#FECACA"),
+                        border_radius=12,
+                        content=ft.Text(message, size=12, color="#B91C1C"),
+                    )
+                )
+                page.update()
             else:
-                orders = []
-                try:
-                    rd = res.json().get("detail", f"Failed ({res.status_code}).")
-                except Exception:
-                    rd = f"Failed ({res.status_code})."
-                notify(page, rd, C.accent(), ft.icons.ERROR_OUTLINE, title="Tracking Failed")
+                message = user_facing_error(
+                    res,
+                    "We couldn't check your order right now. Please try again shortly.",
+                )
+                notify(page, message, C.danger(), ft.icons.ERROR_OUTLINE, title="Tracking Failed")
+        except httpx.HTTPError:
+            notify(
+                page,
+                "We couldn't connect to order tracking. Check your connection and try again.",
+                C.danger(),
+                ft.icons.ERROR_OUTLINE,
+                title="Tracking Failed",
+            )
+        except (ValueError, TypeError, AttributeError):
+            notify(
+                page,
+                "We couldn't read the tracking response. Please try again shortly.",
+                C.danger(),
+                ft.icons.ERROR_OUTLINE,
+                title="Tracking Failed",
+            )
+        finally:
             spinner.visible = False
-            _render_orders(orders)
-        except Exception as err:
-            spinner.visible = False
-            notify(page, f"Connection error: {err}", C.accent(), ft.icons.ERROR_OUTLINE, title="Tracking Failed")
+            loading_skeleton.visible = False
+            phone_field.disabled = False
+            reference_field.disabled = False
+            track_btn.disabled = False
+            button_label.value = "Track My Order"
+            button_spinner.visible = False
             page.update()
 
     track_btn = ft.ElevatedButton(
-        "Track My Order", bgcolor=C.accent(), color="white", height=45,
+        content=ft.Row([button_spinner, button_label], alignment=ft.MainAxisAlignment.CENTER, spacing=8),
+        bgcolor=C.accent(), color="white", height=45,
         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
         on_click=do_track,
     )
@@ -168,6 +223,7 @@ def build_track_page(page: ft.Page, back_callback):
                     phone_field,
                     ft.Row([track_btn, spinner], spacing=10),
                     ft.Container(height=8),
+                    loading_skeleton,
                     result_col,
                 ], spacing=10, scroll=ft.ScrollMode.AUTO, expand=True),
             ),

@@ -3,6 +3,7 @@ import base64
 import os
 import uuid
 from app.db.supabase_client import supabase
+from app.services.ai_engine import clean_env_secret
 
 OPENROUTER_VISION_MODEL = os.getenv(
     "OPENROUTER_VISION_MODEL",
@@ -76,7 +77,7 @@ async def describe_part_image(media_id_or_url: str, whatsapp_token: str, groq_ap
     if not media_id_or_url:
         return "An image was attached, but media ID/URL could not be retrieved."
 
-    openrouter_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    openrouter_key = clean_env_secret("OPENROUTER_API_KEY")
     if not openrouter_key:
         print("⚠️ OPENROUTER_API_KEY missing in .env")
         return "An image was attached, but vision service is unconfigured."

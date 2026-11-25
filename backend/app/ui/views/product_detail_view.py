@@ -74,8 +74,18 @@ def build_product_detail_view(page: ft.Page, product: dict, back_callback, add_t
     )
 
     image_preview = ft.Container(
-        height=230, border_radius=22, bgcolor=C.surface_alt(), alignment=ft.alignment.center,
-        padding=15, shadow=C.soft_shadow(),
+        height=230,
+        border_radius=22,
+        gradient=ft.LinearGradient(
+            begin=ft.alignment.top_left,
+            end=ft.alignment.bottom_right,
+            colors=[C.surface(), C.surface_alt(), C.surface()],
+        ),
+        border=ft.border.all(1, C.divider()),
+        alignment=ft.alignment.center,
+        padding=15,
+        shadow=C.card_shadow(),
+        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
         content=ft.Image(src=img_url, fit=ft.ImageFit.CONTAIN,
                          error_content=ft.Icon(ft.icons.CAR_REPAIR, size=48, color=C.muted()))
     )

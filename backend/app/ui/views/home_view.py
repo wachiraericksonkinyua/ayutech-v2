@@ -237,8 +237,18 @@ def build_home_view(page: ft.Page, update_cart_callback, update_wishlist_callbac
                         ft.Stack(
                             controls=[
                                 ft.Container(
-                                    height=100, border_radius=14, bgcolor=C.surface_alt(),
-                                    alignment=ft.alignment.center, padding=5,
+                                    height=100,
+                                    border_radius=14,
+                                    gradient=ft.LinearGradient(
+                                        begin=ft.alignment.top_left,
+                                        end=ft.alignment.bottom_right,
+                                        colors=[C.surface(), C.surface_alt(), C.surface()],
+                                    ),
+                                    border=ft.border.all(1, C.divider()),
+                                    shadow=C.soft_shadow(),
+                                    clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                    alignment=ft.alignment.center,
+                                    padding=5,
                                     content=ft.Image(src=img_url, fit=ft.ImageFit.CONTAIN)
                                 ),
                                 ft.Container(

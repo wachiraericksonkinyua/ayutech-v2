@@ -8,6 +8,7 @@ from app.ui import state as app_state
 from app.ui import api as api_client
 from app.ui.notifications import notify
 from app.ui import colors as C
+from app.ui.api import user_facing_error
 
 def format_phone_number(raw: str) -> str:
     cleaned = "".join(filter(str.isdigit, raw))
@@ -335,16 +336,19 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
                 notify(page, "STK Prompt sent! Enter M-Pesa PIN on your phone.", "#25D366", ft.icons.PHONE_ANDROID, title="M-Pesa Prompt")
                 show_confirmation(new_order)
             else:
-                detail = res.text
-                try:
-                    detail = res.json().get("detail", detail)
-                except Exception:
-                    pass
+                detail = user_facing_error(
+                    res,
+                    "We couldn't place your order right now. Please try again.",
+                )
                 raise RuntimeError(f"Checkout failed ({res.status_code}): {detail}")
         except Exception as err:
             checkout_btn.on_click = handle_checkout
             cta_text.value = "Pay via M-PESA" if selected_payment == "mpesa" else "Confirm Order"
-            notify(page, str(err), C.accent(), ft.icons.ERROR_OUTLINE, title="Checkout Failed")
+            message = (
+                str(err) if isinstance(err, RuntimeError)
+                else "We couldn't connect to checkout. Please check your connection and try again."
+            )
+            notify(page, message, C.danger(), ft.icons.ERROR_OUTLINE, title="Checkout Failed")
 
     def show_confirmation(order):
       cart_ref = str(order.get("order_id", "AYU-????"))
@@ -356,7 +360,12 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
           switch_tab_callback(3)
 
       def _status_color(st):
-        return {"Paid": C.success(), "Processing": C.info(), "Fulfilled": C.success(), "Cancelled": C.danger()}.get(st, C.warn())
+        normalized = (st or "").strip().lower().replace("_", " ")
+        if normalized in {"paid", "fulfilled", "delivered", "completed"}:
+          return C.success()
+        if normalized in {"cancelled", "canceled", "payment failed", "failed", "error"}:
+          return C.danger()
+        return C.warn()
 
       def refresh_status():
         try:
@@ -392,26 +401,36 @@ def build_cart_view(page: ft.Page, change_qty_callback, switch_tab_callback=None
               timeout=12,
           )
           if r.status_code not in (200, 201):
-            detail = r.text
-            try:
-              detail = r.json().get("detail", detail)
-            except Exception:
-              pass
-            notify(page, detail, C.accent(), ft.icons.ERROR_OUTLINE, title="Status Check")
-        except Exception as err:
-          notify(page, f"Could not check payment: {err}", C.accent(), ft.icons.ERROR_OUTLINE, title="Status Check")
+            notify(
+                page,
+                user_facing_error(r, "We couldn't check payment status. Please try again."),
+                C.danger(),
+                ft.icons.ERROR_OUTLINE,
+                title="Status Check",
+            )
+        except httpx.HTTPError:
+          notify(
+              page,
+              "We couldn't connect to payment status. Please check your connection and retry.",
+              C.danger(),
+              ft.icons.ERROR_OUTLINE,
+              title="Status Check",
+          )
         refresh_status()
 
       conf_column = ft.Column(controls=[
           ft.Container(
               padding=30, alignment=ft.alignment.center,
+              bgcolor=C.success_soft(),
+              border=ft.border.all(1, "#A7F3D0"),
+              border_radius=18,
               content=ft.Column(controls=[
                   ft.Container(
-                      width=76, height=76, bgcolor=C.accent_soft(), border_radius=38,
+                      width=76, height=76, bgcolor="#D1FAE5", border_radius=38,
                       alignment=ft.alignment.center,
                       content=ft.Icon(ft.icons.CHECK_CIRCLE, color="#16A34A", size=44),
                   ),
-                  ft.Text("Order Confirmed!", size=20, weight=ft.FontWeight.BOLD, color=C.text()),
+                  ft.Text("Order Placed Successfully!", size=20, weight=ft.FontWeight.BOLD, color="#166534"),
                   ft.Text(f"Reference: {cart_ref}", size=13, weight=ft.FontWeight.BOLD, color=C.accent()),
                   ft.Text(order.get("date", ""), size=11, color=C.muted()),
               ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),

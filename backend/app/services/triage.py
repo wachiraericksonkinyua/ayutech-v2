@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from app.services.ai_engine import (
+    clean_env_secret,
     is_human_takeover_active,
     save_chat_message,
     fetch_recent_chat_history,
@@ -24,7 +25,7 @@ from app.services.ai_engine import (
 )
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_KEY = os.getenv("GROQ_API_KEY", "").strip()
+GROQ_KEY = clean_env_secret("GROQ_API_KEY")
 TRIAGE_MODEL = os.getenv("TRIAGE_MODEL", "qwen/qwen3.8-27b").strip()
 VISION_MODEL = os.getenv("VISION_MODEL", "llama-3.2-11b-vision-preview").strip()
 
@@ -458,7 +459,7 @@ async def describe_image(image_url: str) -> str:
     return await _openrouter_vision_fallback(image_url)
 
 async def _openrouter_vision_fallback(image_url: str) -> str:
-    key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    key = clean_env_secret("OPENROUTER_API_KEY")
     if not key:
         return ""
     try:

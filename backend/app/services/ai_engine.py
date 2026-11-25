@@ -2,6 +2,7 @@
 
 import os
 import json
+import re
 import httpx
 from datetime import datetime
 from dotenv import load_dotenv
@@ -22,6 +23,12 @@ DELIVERY_RATES = {
 }
 
 CATALOG_SUMMARY = os.getenv("CATALOG_SUMMARY", "No inventory available.")
+
+
+def clean_env_secret(name: str) -> str:
+    """Read a secret while tolerating whitespace or quotes pasted into env vars."""
+    return os.getenv(name, "").strip().strip("\"'").strip()
+
 
 SYSTEM_INSTRUCTIONS = f"""
 You are the official digital sales assistant for Ayutech Motors on Kirinyaga Road, Nairobi.
@@ -209,7 +216,7 @@ async def generate_grounded_reply(customer_phone: str, user_message: str, image_
         save_chat_message(customer_phone, "user", user_message)
         return ""
 
-    groq_key = os.getenv("GROQ_API_KEY", "").strip()
+    groq_key = clean_env_secret("GROQ_API_KEY")
     chat_history = fetch_recent_chat_history(customer_phone, limit=6)
     save_chat_message(customer_phone, "user", user_message)
 
@@ -255,7 +262,7 @@ async def generate_grounded_reply(customer_phone: str, user_message: str, image_
             if res.status_code == 200:
                 reply = res.json()["choices"][0]["message"]["content"].strip()
             else:
-                print(f"⚠️ Reply API Error ({res.status_code}): {res.text}")
+                print(f"⚠️ Reply API request failed with status {res.status_code}.")
         except Exception as e:
             print(f"⚠️ Reply Generation Error: {e}")
 
@@ -293,8 +300,122 @@ FILLER_WORDS = {
     "vehicle", "vehicles", "models", "model", "does", "this", "that",
     "what", "are", "how", "much", "stock", "price", "cost", "please",
     "on", "of", "need", "want", "their", "ors", "or", "parts", "part",
-    "with", "from", "about", "am", "asking",
+    "with", "from", "about", "am", "asking", "budget", "under", "below",
+    "within", "maximum", "max", "less", "than", "kes", "ksh", "k",
+    "do", "have", "currently", "available", "show", "catalog", "catalogue",
+    "inventory", "list", "items", "spares",
 }
+
+
+_CATEGORY_TERMS = {
+    "engine": ("engine", "piston", "cylinder", "gasket", "injector"),
+    "brake": ("brake", "brakes", "pad", "pads", "disc", "rotor"),
+    "body": ("body", "bumper", "mirror", "door", "fender", "lamp", "light"),
+    "gear": ("gear", "gearbox", "clutch", "transmission"),
+    "service": ("service", "filter", "oil", "maintenance"),
+    "suspension": ("suspension", "shock", "absorber", "spring"),
+    "lubricant": ("lubricant", "lubricants", "grease", "engine oil"),
+}
+
+
+def _product_price(product: dict) -> float:
+    try:
+        return float(product.get("price") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _product_stock(product: dict) -> int:
+    try:
+        return int(product.get("stock_quantity") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _budget_limit(query: str) -> float | None:
+    patterns = (
+        r"\b(?:under|below|within|max(?:imum)?|budget(?:\s+(?:of|is|around|under))?)\s*(?:kes|ksh)?\s*([\d,]+(?:\.\d+)?)\s*(k)?",
+        r"\b(?:kes|ksh)\s*([\d,]+(?:\.\d+)?)\s*(k)?\s*(?:or\s+less|and\s+below|max)?\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, query, re.IGNORECASE)
+        if match:
+            try:
+                amount = float(match.group(1).replace(",", ""))
+                return amount * 1000 if match.group(2) else amount
+            except ValueError:
+                return None
+    return None
+
+
+def _catalog_matches(query: str, products: list[dict]) -> list[dict]:
+    """Return relevant, in-stock items, honoring category and KES budget hints."""
+    query_lower = query.lower()
+    in_stock = [p for p in products if _product_stock(p) > 0]
+    budget = _budget_limit(query_lower)
+    if budget is not None:
+        in_stock = [p for p in in_stock if _product_price(p) <= budget]
+
+    category_terms = [
+        terms for terms in _CATEGORY_TERMS.values()
+        if any(term in query_lower for term in terms)
+    ]
+    if category_terms:
+        categorized = [
+            p for p in in_stock
+            if any(
+                term in str(p.get("category", "")).lower()
+                or term in str(p.get("name", "")).lower()
+                for terms in category_terms for term in terms
+            )
+        ]
+        if not categorized:
+            return []
+        in_stock = categorized
+
+    terms = [
+        term for term in _fitment_search_terms(query_lower)
+        if not term.isdigit() and term not in FILLER_WORDS
+    ]
+    scored = []
+    for product in in_stock:
+        searchable = " ".join(
+            str(product.get(field) or "")
+            for field in ("name", "category", "description")
+        ).lower()
+        score = sum(1 for term in terms if term in searchable)
+        if score:
+            scored.append((score, product))
+
+    if scored:
+        scored.sort(key=lambda pair: (-pair[0], _product_price(pair[1])))
+        return [product for _, product in scored]
+    return [] if terms else in_stock
+
+
+def build_catalog_fallback_reply(user_message: str, products: list[dict]) -> str:
+    """Build a short customer-facing catalog answer without relying on an LLM."""
+    matches = _catalog_matches(user_message, products)
+    if not matches:
+        if products and not any(_product_stock(p) > 0 for p in products):
+            return (
+                "I couldn't find an in-stock match for that request right now. "
+                "Tell me the part or vehicle model and I can help you check with the shop."
+            )
+        return (
+            "I couldn't find a matching part in the current catalog. "
+            "Tell me the vehicle model or your budget in KES and I'll narrow the search."
+        )
+
+    picks = ", ".join(
+        f"{product.get('name', 'Auto part')} (KES {_product_price(product):,.0f})"
+        for product in matches[:3]
+    )
+    return (
+        f"Here are matching in-stock options: {picks}. "
+        "Tell me your vehicle model or budget in KES if you'd like me to narrow these down."
+    )
+
 
 def _fitment_search_terms(query: str) -> list:
     q = query.lower()
@@ -315,35 +436,17 @@ async def generate_fitment_response(messages: list) -> dict:
         return {"reply": "Please ask a question about our spare parts.", "products": []}
 
     latest_user_query = messages[-1].get("content", "").lower().strip()
-    groq_key = os.getenv("GROQ_API_KEY", "").strip()
+    groq_key = clean_env_secret("GROQ_API_KEY")
 
     matched_products = []
     matched_lines = []
     try:
         all_products = _cached_catalog()
-        search_terms = _fitment_search_terms(latest_user_query)
-
-        for p in all_products:
-            p_name = str(p.get("name", "")).lower()
-            p_cat = str(p.get("category", "")).lower()
-
-            score = sum(1 for term in search_terms if term in p_name or term in p_cat)
-            if score > 0 or any(part in p_name for part in ["7l", "1kd", "2kd", "hiace"] if part in latest_user_query):
-                matched_products.append(p)
-                matched_lines.append(
-                    f"- {p.get('name')}: KES {float(p.get('price', 0)):,.0f} ({p.get('stock_quantity', 0)} in stock)"
-                )
-
-        if not matched_lines:
-            generic_queries = ["product", "products", "catalog", "catalogue", "stock",
-                               "what do you have", "list", "parts", "spares", "inventory"]
-            if any(g in latest_user_query for g in generic_queries):
-                matched_lines = [
-                    f"- {p.get('name')}: KES {float(p.get('price', 0)):,.0f} ({p.get('stock_quantity', 0)} in stock)"
-                    for p in all_products[:8]
-                ]
-            else:
-                matched_lines = ["No matching items found for that request."]
+        matched_products = _catalog_matches(latest_user_query, all_products)
+        matched_lines = [
+            f"- {p.get('name')}: KES {_product_price(p):,.0f} ({_product_stock(p)} in stock)"
+            for p in matched_products[:10]
+        ] or ["No matching in-stock items found."]
         catalog_summary = "\n".join(matched_lines[:10])
     except Exception as e:
         print(f"Catalog sync error: {e}")
@@ -370,7 +473,7 @@ Relevant Inventory:
     for msg in messages[-3:]:
         groq_messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
 
-    reply_text = f"We have genuine auto parts in stock at Kirinyaga Road. For '{latest_user_query}', please check our Browse tab or speak with the store directly."
+    reply_text = build_catalog_fallback_reply(latest_user_query, matched_products)
 
     if groq_key:
         try:
@@ -394,13 +497,9 @@ Relevant Inventory:
                     if content and content.strip():
                         reply_text = content.strip()
                 else:
-                    print(f"❌ Groq API Error Status {resp.status_code}: {resp.text}")
+                    print(f"❌ Groq API request failed with status {resp.status_code}.")
         except Exception as err:
             print(f"❌ Groq Request Exception: {err}")
-            reply_text = (
-                "I can still help! For the latest stock and exact fitment, "
-                "browse the catalog or message the store on WhatsApp."
-            )
     
     # Return top matching products max for instant add-to-cart buttons
     return {

@@ -15,13 +15,13 @@ def build_orders_view(page: ft.Page, back_callback=None):
 
   def get_badge_color(status: str) -> str:
     s = (status or '').lower()
-    if 'paid' in s or 'processing' in s:
-      return '#25D366'  # Green
-    elif 'fulfilled' in s:
-      return '#2563EB'  # Blue
-    elif 'cancel' in s or 'fail' in s:
-      return '#6B7280'  # Gray
-    return C.accent()  # Red for Pending / Pending PIN
+    if any(value in s for value in ('paid', 'fulfilled', 'delivered', 'completed')):
+      return '#16A34A'
+    if any(value in s for value in ('cancel', 'fail', 'error')):
+      return '#EF4444'
+    if 'pending' in s or 'processing' in s:
+      return '#D97706'
+    return '#6B7280'
 
   def show_receipt_dialog(ord_data: dict):
     status = ord_data.get('status', 'Pending PIN')
@@ -35,18 +35,34 @@ def build_orders_view(page: ft.Page, back_callback=None):
     def submit_manual_receipt(e):
       try:
         res = api_client.post(f'/orders/{order_ref}/refresh-payment', timeout=12)
+        if res.status_code not in (200, 201):
+          notify(
+              page,
+              api_client.user_facing_error(
+                  res,
+                  "We couldn't check payment status. Please try again.",
+              ),
+              C.danger(),
+              title='Status Check Failed',
+          )
+          return
         data = res.json()
         notify(
             page,
             data.get('message', data.get('detail', 'Payment status checked.')),
-            '#16A34A' if res.status_code == 200 else C.accent(),
+            '#16A34A',
             title='Payment Status',
         )
         sync_orders_status()
         render_orders()
         page.update()
-      except Exception as err:
-        notify(page, f'Payment status check failed: {err}', C.accent(), title='Status Check Failed')
+      except Exception:
+        notify(
+            page,
+            "We couldn't connect to payment status. Please try again.",
+            C.danger(),
+            title='Status Check Failed',
+        )
 
     verify_action_row = (
         ft.Container(
@@ -278,16 +294,19 @@ def build_orders_view(page: ft.Page, back_callback=None):
 
         notify(
             page, f'Status checked: {new_status}',
-            '#25D366' if new_status in ['Paid', 'Processing'] else C.accent(),
+            '#16A34A' if new_status in ['Paid', 'Fulfilled', 'Delivered', 'Completed']
+            else '#D97706' if new_status in ['Pending', 'Pending PIN', 'Processing']
+            else '#EF4444' if new_status in ['Cancelled', 'Payment Failed', 'Failed']
+            else '#6B7280',
             title='Order Status',
         )
         render_orders()
         page.update()
       else:
-        try:
-          detail = res.json().get('detail', f'Status lookup failed ({res.status_code}).')
-        except Exception:
-          detail = f'Status lookup failed ({res.status_code}).'
+        detail = api_client.user_facing_error(
+            res,
+            "We couldn't check this order's status. Please try again shortly.",
+        )
         notify(page, detail, C.accent(), title='Status Check Failed')
         page.update()
     except Exception as err:
